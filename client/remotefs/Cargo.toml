@@ -2,7 +2,81 @@
 name = "remotefs"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Your Name <your.email@example.com>"]
+description = "A remote file system client that mounts remote storage as a local directory"
+readme = "README.md"
+repository = "https://github.com/yourusername/remotefs"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
+# FUSE implementation
+fuser = "0.12"
+
+# Async runtime and utilities
+tokio = { version = "1.28", features = ["full"] }
+futures = "0.3"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Serialization/Deserialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Command line argument parsing
+clap = { version = "4.3", features = ["derive"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.10"
+
+# Cache implementation
+lru = "0.10"
+
+# Path manipulation
+path-clean = "1.0"
+
+# Date/time utilities
+chrono = { version = "0.4", features = ["serde"] }
+toml = "0.8.23"
+
+[dev-dependencies]
+# Testing utilities
+tempfile = "3.6"
+assert_fs = "1.0"
+httpmock = "0.6"
+
+[lib]
+name = "remotefs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "remotefs"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Configurazione del server remoto
+server_url = "http://localhost"
+port = 8080
+
+# Punto di mount del filesystem
+mount_point = "/mnt/remotefs"
+
+# Timeout in nanosecondi (chrono::Duration)
+# 60 secondi = 60,000,000,000 nanosecondi
+timeout = 60000000000
+
+# Configurazione di autenticazione (opzionale)
+username = "francesco"
+password = "mypassword"
+api_key = "your-api-key-here"
