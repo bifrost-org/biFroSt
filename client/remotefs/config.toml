@@ -1,0 +1,15 @@
+# Configurazione del server remoto
+server_url = "http://localhost"
+port = 8080
+
+# Punto di mount del filesystem
+mount_point = "/mnt/remotefs"
+
+# Timeout in secondi (se usi std::time::Duration) o nanosecondi (se usi chrono::Duration)
+# Per std::time::Duration: 60 secondi
+timeout = { secs = 60, nanos = 0 }
+
+# Configurazione di autenticazione (opzionale - puoi omettere questi campi)
+username = "francesco"
+password = "mypassword"
+api_key = "your-api-key-here"
