@@ -49,8 +49,8 @@ pub struct FileContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadRequest {
     pub path: String,
-    pub offset: u64,
-    pub size: u64,
+    pub offset: Option<u64>,
+    pub size: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +73,7 @@ pub enum WriteOperation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteRequest {
     pub path: String,
+    pub recursive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,4 +85,5 @@ pub struct CreateFileRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateDirectoryRequest {
     pub path: String,
+    pub permissions_octal: String,
 }
