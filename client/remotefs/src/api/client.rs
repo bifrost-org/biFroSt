@@ -127,19 +127,17 @@ impl RemoteClient {
     // Leggi contenuto file
     pub async fn read_file(
         &self,
-        path: &str,
-        offset: Option<u64>,
-        size: Option<u64>,
+        read_request: &ReadRequest,
     ) -> Result<FileContent, ClientError> {
-        let mut url = self.build_url(&format!("/files{}", path));
+        let mut url = self.build_url(&format!("/files{}", read_request.path));
 
         // Aggiungi parametri query se specificati
-        if offset.is_some() || size.is_some() {
+        if read_request.offset.is_some() || read_request.size.is_some() {
             let mut query_params = Vec::new();
-            if let Some(offset) = offset {
+            if let Some(offset) = read_request.offset {
                 query_params.push(format!("offset={}", offset));
             }
-            if let Some(size) = size {
+            if let Some(size) = read_request.size {
                 query_params.push(format!("size={}", size));
             }
             url = format!("{}?{}", url, query_params.join("&"));
@@ -171,12 +169,9 @@ impl RemoteClient {
     }
 
     // Crea directory
-    pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
-        let url = self.build_url(&format!("/mkdir{}", path));
+    pub async fn create_directory(&self, create_request: &CreateDirectoryRequest) -> Result<(), ClientError> {
+        let url = self.build_url(&format!("/mkdir{}", create_request.path));
 
-        let create_request = CreateDirectoryRequest {
-            path: path.to_string(),
-        };
 
         let response = self
             .http_client
@@ -190,13 +185,14 @@ impl RemoteClient {
     }
 
     // Elimina file o directory
-    pub async fn delete(&self, path: &str) -> Result<(), ClientError> {
-        let url = self.build_url(&format!("/files{}", path));
+    pub async fn delete(&self, delete_request: &DeleteRequest) -> Result<(), ClientError> {
+        let url = self.build_url(&format!("/files{}", delete_request.path));
 
         let response = self
             .http_client
             .delete(&url)
             .headers(self.auth_headers())
+            .json(delete_request)
             .send()
             .await?;
 
