@@ -43,6 +43,8 @@ path-clean = "1.0"
 # Date/time utilities
 chrono = { version = "0.4", features = ["serde"] }
 toml = "0.8.23"
+libc = "0.2.174"
+mockall = "0.13.1"
 
 [dev-dependencies]
 # Testing utilities
