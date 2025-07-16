@@ -110,6 +110,20 @@ impl RemoteClient {
         headers
     }
 
+        // Ottieni metadati di un singolo file/directory
+    pub async fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
+        let url = self.build_url(&format!("/metadata{}", path));
+
+        let response = self
+            .http_client
+            .get(&url)
+            .headers(self.auth_headers())
+            .send()
+            .await?;
+
+        self.handle_response(response).await
+    }
+
     // Lista contenuto directory
     pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
         let url = self.build_url(&format!("/list{}", path));
