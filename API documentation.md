@@ -75,12 +75,12 @@ This request uses `multipart/form-data` with:
 
 Full description of the file’s metadata and optional new path:
 
-| **Field**     | **Description**                                          | **Type**               | **Required** |
-| ------------- | -------------------------------------------------------- | ---------------------- | ------------ |
-| `newPath`     | If provided, the file will be **moved** to this new path | `string` (URL-encoded) | No           |
-| `size`        | Size in bytes of the content                             | `number`               | Yes          |
-| `permissions` | File permission string (e.g. `rw-r--r--`)                | `string`               | Yes          |
-| `modified`    | Last modified timestamp (ISO 8601)                       | `string`               | Yes          |
+| **Field**      | **Description**                                          | **Type**               | **Required** |
+| -------------- | -------------------------------------------------------- | ---------------------- | ------------ |
+| `newPath`      | If provided, the file will be **moved** to this new path | `string` (URL-encoded) | No           |
+| `size`         | Size in bytes of the content                             | `number`               | Yes          |
+| `permissions`  | File permission string (e.g. `rw-r--r--`)                | `string`               | Yes          |
+| `lastModified` | Last modified timestamp (ISO 8601)                       | `string`               | Yes          |
 
 #### Why include `size`?
 
@@ -90,13 +90,22 @@ Although the file size can technically be determined from the uploaded binary, s
 
 Raw file contents (binary or text).
 
+#### Field names
+
+In the multipart/form-data request body, the field names must be:
+
+- `"metadata"` – containing the JSON object with metadata fields (newPath, size, permissions, lastModified);
+- `"content"` – containing the raw binary data of the file.
+
+Correctly naming these fields is required for the server to correctly parse and handle the request.
+
 ### Example multipart body
 
 **Part 1 – JSON (metadata):**
 
 ```json
 {
-  "modified": "2025-07-17T09:42:00Z",
+  "lastModified": "2025-07-17T09:42:00Z",
   "newPath": "/documents/test.txt",
   "permissions": "rw-r--r--",
   "size": 1024
@@ -164,14 +173,14 @@ Each object includes:
 [
   {
     "isDirectory": false,
-    "modified": "2025-07-18T16:00:00Z",
+    "lastModified": "2025-07-18T16:00:00Z",
     "name": "test.txt",
     "permissions": "rw-r--r--",
     "size": 1024
   },
   {
     "isDirectory": true,
-    "modified": "2025-07-17T10:15:32Z",
+    "lastModified": "2025-07-17T10:15:32Z",
     "name": "subfolder",
     "permissions": "rwxr-xr-x",
     "size": 0
