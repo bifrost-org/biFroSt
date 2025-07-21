@@ -3,9 +3,9 @@ mod tests {
     use super::*;
     use crate::api::client::ClientError;
     use crate::api::models::MetaFile;
+    use std::cell::RefCell;
     use std::collections::HashMap;
     use std::ffi::OsStr;
-    use std::cell::RefCell;
 
     // Mock semplice di RemoteClient
     struct MockClient {
@@ -18,19 +18,23 @@ mod tests {
                 responses: RefCell::new(HashMap::new()),
             }
         }
-        
+
         fn add_response(&self, path: &str, result: Result<MetaFile, ClientError>) {
             self.responses.borrow_mut().insert(path.to_string(), result);
         }
-        
+
         // Versione sincrona per semplicità
         fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
             match self.responses.borrow().get(path) {
                 Some(result) => match result {
                     Ok(meta) => Ok(meta.clone()),
-                    Err(e) => Err(ClientError::NotFound { path: path.to_string() }),
+                    Err(e) => Err(ClientError::NotFound {
+                        path: path.to_string(),
+                    }),
                 },
-                None => Err(ClientError::NotFound { path: path.to_string() }),
+                None => Err(ClientError::NotFound {
+                    path: path.to_string(),
+                }),
             }
         }
     }
@@ -108,11 +112,11 @@ mod tests {
         // Setup
         let client = MockClient::new();
         let mut fs = TestFileSystem::new(client);
-        
+
         // Test 1: File che non esiste
         let result = fs.lookup(1, "nonexistent.txt");
         assert_eq!(result, Err(libc::ENOENT));
-        
+
         // Test 2: Aggiungi risposta per file che esiste
         let test_file = MetaFile {
             path: "/test.txt".to_string(),
@@ -123,7 +127,7 @@ mod tests {
             type_file: "file".to_string(),
         };
         fs.client.add_response("/test.txt", Ok(test_file));
-        
+
         // Ora il file dovrebbe essere trovato
         let inode = fs.lookup(1, "test.txt").expect("File dovrebbe esistere");
         assert!(inode > 1, "Dovrebbe essere assegnato un nuovo inode");

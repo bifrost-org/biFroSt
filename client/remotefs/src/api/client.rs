@@ -145,6 +145,8 @@ impl RemoteClient {
     ) -> Result<FileContent, ClientError> {
         let mut url = self.build_url(&format!("/files{}", read_request.path));
 
+
+        // ELIMINARE I QUERY PARAMETERS PRENDERE TUTTO IL FILE
         // Aggiungi parametri query se specificati
         if read_request.offset.is_some() || read_request.size.is_some() {
             let mut query_params = Vec::new();

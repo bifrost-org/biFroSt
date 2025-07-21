@@ -56,18 +56,18 @@ pub struct ReadRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriteRequest {
     pub path: String,
-    pub operation: WriteOperation,
+    pub operation: WriteOperation, //inutile a sto punto
     pub data: Option<Vec<u8>>,
-    pub offset: Option<u64>,
+    pub offset: Option<u64>, //toglierlo 
     pub new_path: Option<String>,
-    pub content_type: Option<String>,
+    pub content_type: Option<String>, //toglierlo perchè lo deduco dal path
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WriteOperation {
     Write,
     Move,
-    Append,
+    Append, //toglierlo 
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
