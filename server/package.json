@@ -1,10 +1,10 @@
 {
-  "name": "cloudmount-server",
+  "name": "bifrost-server",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "dev": "nodemon ./src/index.ts",
-    "build": "npx tsc --project tsconfig.build.json",
+    "build": "npx tsc --project tsconfig.build.json && cpx package.json dist/",
     "lint": "npx eslint . --max-warnings 0 --report-unused-disable-directives",
     "lint-check": "npx eslint . --max-warnings 0",
     "format": "npx prettier . --write",
@@ -25,6 +25,7 @@
     "@types/passport-local": "^1.0.38",
     "@types/pg": "^8.11.10",
     "bcrypt": "^5.1.1",
+    "cpx": "^1.5.0",
     "eslint": "^9.13.0",
     "eslint-config-prettier": "^9.1.0",
     "nodemon": "^3.1.7",
@@ -35,7 +36,6 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "dayjs": "^1.11.13",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "express-session": "^1.18.1",
