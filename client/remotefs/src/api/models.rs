@@ -23,51 +23,41 @@ pub struct SessionInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetaFile {
-    pub path: String,
-    pub size_bytes: u64,
+    #[serde(rename = "name")]
+    pub name: String,
+    
+    #[serde(rename = "size")]
+    pub size: u64,
+    
+    #[serde(rename = "lastModified")]
     pub last_modified: String,
+    
+    #[serde(rename = "permissions")]
     pub permissions_octal: String,
-    pub owner_name: String,
-    pub type_file: String,
+    
+    #[serde(rename = "isDirectory")]
+    pub is_directory: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectoryListing {
-    pub path: String,
     pub files: Vec<MetaFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileContent {
-    pub data: Vec<u8>,
-    pub offset: u64,
-    pub total_size: u64,
-    pub content_type: Option<String>,
-    pub is_partial: bool,
+    pub data: Vec<u8>
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReadRequest {
-    pub path: String,
-    pub offset: Option<u64>,
-    pub size: Option<u64>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriteRequest {
     pub path: String,
-    pub operation: WriteOperation, //inutile a sto punto
-    pub data: Option<Vec<u8>>,
-    pub offset: Option<u64>, //toglierlo 
     pub new_path: Option<String>,
-    pub content_type: Option<String>, //toglierlo perchè lo deduco dal path
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum WriteOperation {
-    Write,
-    Move,
-    Append, //toglierlo 
+    pub data: Option<Vec<u8>>,
+    pub size: Option<u64>,
+    pub permissions_octal: Option<String>,
+    pub last_modified: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

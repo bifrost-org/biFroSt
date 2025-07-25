@@ -49,16 +49,16 @@ pub fn new_directory_attr(ino: u64) -> FileAttr {
 pub fn from_metadata(new_inode: u64, metadata: &MetaFile) -> FileAttr {
     FileAttr {
         ino: new_inode,
-        size: metadata.size_bytes,
-        blocks: (metadata.size_bytes + 511) / 512,
+        size: metadata.size,
+        blocks: (metadata.size + 511) / 512,
         atime: SystemTime::now(), // Non abbiamo accesso a questi dati
         mtime: SystemTime::now(),
         ctime: SystemTime::now(),
         crtime: SystemTime::now(),
-        kind: match metadata.type_file.as_str() {
-            "file" => FileType::RegularFile,
-            "directory" => FileType::Directory,
-            _ => FileType::Symlink,  // Default a symlink se tipo sconosciuto
+        kind: if metadata.name.as_str().contains('.') {
+            FileType::RegularFile
+        } else {
+            FileType::Directory
         },
         perm: u16::from_str_radix(&metadata.permissions_octal, 8).unwrap_or(0o644),
         nlink: 1, // Non gestiamo link multipli
