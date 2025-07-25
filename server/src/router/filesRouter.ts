@@ -8,7 +8,9 @@ import { FileError } from "../error/filesError";
 
 export const filesRouter: Router = Router();
 
-const USER_PATH = "C:/Users/emanu/OneDrive/Desktop/provaFS/";
+const USER_PATH = process.env.USER_PATH;
+
+console.log(USER_PATH);
 
 // GET /files/:path
 filesRouter.get(
