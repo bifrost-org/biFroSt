@@ -100,9 +100,9 @@ impl Filesystem for RemoteFileSystem {
                     
                     // Registra file nella cache degli inode
                     for entry in listing.files {
-                        if !self.path_to_inode.contains_key(&entry.path) {
+                        if !self.path_to_inode.contains_key(&entry.name) {
                             let new_inode = self.generate_inode();
-                            self.register_inode(new_inode, entry.path);
+                            self.register_inode(new_inode, entry.name);
                         }
                     }
                 }

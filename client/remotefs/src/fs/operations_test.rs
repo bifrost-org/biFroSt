@@ -119,12 +119,11 @@ mod tests {
 
         // Test 2: Aggiungi risposta per file che esiste
         let test_file = MetaFile {
-            path: "/test.txt".to_string(),
-            size_bytes: 100,
+            name: "/test.txt".to_string(),
+            size: 100,
             last_modified: "2025-01-01T00:00:00Z".to_string(),
             permissions_octal: "644".to_string(),
-            owner_name: "user".to_string(),
-            type_file: "file".to_string(),
+            is_directory: false,
         };
         fs.client.add_response("/test.txt", Ok(test_file));
 

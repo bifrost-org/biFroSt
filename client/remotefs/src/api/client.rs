@@ -1,3 +1,6 @@
+use libc::remove;
+use serde_json::json;
+
 use crate::api::models::*;
 use crate::config::settings::Config;
 use std::time::Duration;
@@ -30,6 +33,22 @@ pub enum ClientError {
     Serialization(#[from] serde_json::Error),
 }
 
+fn remove_last_part(path: &str) -> String {
+    if let Some(pos) = path.rfind('/') {
+        path[..pos].to_string()
+    } else {
+        "/".to_string() // Se non c'è '/', ritorna la root
+    }
+}
+
+fn take_last_part(path: &str) -> String {
+    if let Some(pos) = path.rfind('/') {
+        path[pos + 1..].to_string()
+    } else {
+        path.to_string() // Se non c'è '/', ritorna l'intero path
+    }
+}
+
 impl RemoteClient {
     pub fn new(config: &Config) -> Self {
         let http_client = reqwest::Client::builder()
@@ -45,10 +64,20 @@ impl RemoteClient {
         }
     }
 
-    // Costruisce URL completo per un endpoint
-    fn build_url(&self, path: &str) -> String {
-        format!("{}{}", self.base_url, path)
+// Costruisce URL completo per un endpoint con path parameter opzionale
+fn build_url(&self, base_route: &str, path_param: Option<&str>) -> String {
+    match path_param {
+        Some(param) => {
+            // Se c'è un path parameter, codificalo completamente
+            let encoded_param = urlencoding::encode(param.trim_start_matches('/'));
+            format!("{}{}/{}", self.base_url, base_route, encoded_param)
+        }
+        None => {
+            // Se non c'è path parameter, usa solo il base route
+            format!("{}{}", self.base_url, base_route)
+        }
     }
+}
 
     async fn handle_response<T>(&self, response: reqwest::Response) -> Result<T, ClientError>
     where
@@ -110,9 +139,13 @@ impl RemoteClient {
         headers
     }
 
-        // Ottieni metadati di un singolo file/directory
+    // Ottieni metadati di un singolo file/directory
     pub async fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
-        let url = self.build_url(&format!("/metadata{}", path));
+    let last_part = take_last_part(path);
+    let parent_path = remove_last_part(path);
+    
+    // Usa la nuova firma di build_url
+    let url = self.build_url("/list", Some(&parent_path));
 
         let response = self
             .http_client
@@ -121,43 +154,90 @@ impl RemoteClient {
             .send()
             .await?;
 
-        self.handle_response(response).await
-    }
+        let directory_listing: Result<DirectoryListing, ClientError> =
+            self.handle_response(response).await;
 
-    // Lista contenuto directory
-    pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
-        let url = self.build_url(&format!("/list{}", path));
+        match directory_listing {
+            Ok(dir) => {
+                let file = dir.files.iter().find(|f| f.name == last_part);
+                if file.is_none() {
+                    return Err(ClientError::NotFound {
+                        path: path.to_string(),
+                    });
+                }
 
-        let response = self
-            .http_client
-            .get(&url)
-            .headers(self.auth_headers())
-            .send()
-            .await?;
-
-        self.handle_response(response).await
-    }
-
-    // Leggi contenuto file
-    pub async fn read_file(
-        &self,
-        read_request: &ReadRequest,
-    ) -> Result<FileContent, ClientError> {
-        let mut url = self.build_url(&format!("/files{}", read_request.path));
-
-
-        // ELIMINARE I QUERY PARAMETERS PRENDERE TUTTO IL FILE
-        // Aggiungi parametri query se specificati
-        if read_request.offset.is_some() || read_request.size.is_some() {
-            let mut query_params = Vec::new();
-            if let Some(offset) = read_request.offset {
-                query_params.push(format!("offset={}", offset));
+                let mut ret = file.unwrap().clone();
+                ret.name = path.to_string(); // Aggiorna il nome con il path completo
+                
+                Ok(ret)
             }
-            if let Some(size) = read_request.size {
-                query_params.push(format!("size={}", size));
-            }
-            url = format!("{}?{}", url, query_params.join("&"));
+            Err(ClientError::NotFound { path }) => Err(ClientError::NotFound { path }),
+            Err(err) => Err(ClientError::Server {
+                status: 500,
+                message: format!("Failed to list directory: {}", err),
+            }),
         }
+    }
+
+pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
+    
+    let url = self.build_url("/list", Some(path));
+
+    let headers = self.auth_headers();
+
+    let response = match self
+        .http_client
+        .get(&url)
+        .headers(headers)
+        .send()
+        .await {
+            Ok(r) => {
+                println!("✅ [RESPONSE] Risposta ricevuta: status={}", r.status());
+                r
+            },
+            Err(e) => {
+                println!("❌ [ERROR] Errore nell'invio della richiesta: {}", e);
+                return Err(ClientError::Http(e));
+            }
+        };
+
+    // Deserializza direttamente come Vec<MetaFile> invece di DirectoryListing
+    let files: Vec<MetaFile> = match response.json::<Vec<MetaFile>>().await {
+        Ok(f) => {
+            println!("✅ [PARSING] Parsing completato: {} file trovati", f.len());
+            f
+        },
+        Err(e) => {
+            println!("❌ [ERROR] Errore nel parsing della risposta: {:?}", e);
+            return Err(ClientError::Http(e));
+        }
+    };
+    
+    // Crea DirectoryListing dal Vec<MetaFile>
+    let mut directory_listing = DirectoryListing { files };
+    
+    for (i, file) in directory_listing.files.iter_mut().enumerate() {
+        let old_name = file.name.clone();
+        
+        // Costruisci il path completo
+        let full_path = if path == "/" {
+            format!("/{}", file.name)
+        } else {
+            format!("{}/{}", path, file.name)
+        };
+        
+        file.name = full_path;
+        println!("  - File[{}]: {} -> {}", i, old_name, file.name);
+    }
+    
+    println!("✅ [COMPLETATO] Funzione list_directory completata con successo");
+    Ok(directory_listing)
+}
+    // Leggi contenuto file
+    pub async fn read_file(&self, path: &str) -> Result<FileContent, ClientError> {
+        // 1. Codifica correttamente il path
+
+    let url = self.build_url("/files", Some(path));
 
         let response = self
             .http_client
@@ -166,34 +246,93 @@ impl RemoteClient {
             .send()
             .await?;
 
-        self.handle_response(response).await
+        let status = response.status();
+
+        // 2. Gestisci risposta binaria, non JSON
+        if response.status().is_success() {
+            Ok(FileContent {
+                data: response.bytes().await?.to_vec(),
+            })
+        } else {
+            let message = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(self.map_http_error(status.as_u16(), message))
+        }
     }
 
-    // Scrivi file
-    pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
-        let url = self.build_url(&format!("/files{}", write_request.path));
+    // Scrivi file (usando multipart/form-data come richiesto dall'API)
+pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
+    println!("🔍 [INIZIO] write_file con path={}", write_request.path);
+    
+    // Codifica il path per route parameter
+    let url = self.build_url("/files", Some(&write_request.path));
+    
+    println!("🔍 [URL] URL costruito: {}", url);
 
-        let response = self
-            .http_client
-            .put(&url)
-            .headers(self.auth_headers())
-            .json(write_request)
-            .send()
-            .await?;
+    // Prepara il JSON dei metadati (includi newPath se necessario)
+    let data_size = write_request.data.as_ref().map_or(0, |d| d.len());
+    println!("🔍 [DATA] Dimensione dati: {} bytes", data_size);
+    
+    let metadata = json!({
+        "size": data_size,
+        "permissions": write_request.permissions_octal.clone().unwrap_or_else(|| "644".to_string()),
+        "lastModified": write_request.last_modified.clone().unwrap_or_else(||
+            chrono::Utc::now().to_rfc3339()),
+        "newPath": write_request.new_path.clone()
+    });
 
-        self.handle_empty_response(response).await
-    }
+    println!("🔍 [METADATA] Metadati preparati: {}", metadata);
 
+    // Converti metadati in stringa JSON
+    let metadata_str = serde_json::to_string(&metadata)
+        .map_err(ClientError::Serialization)?;
+
+    println!("🔍 [FORM] Preparazione form multipart...");
+    
+    // Crea form multipart - IMPORTANTE: usa i nomi campo corretti
+    let form = reqwest::multipart::Form::new()
+        // Campo "metadata" come testo JSON
+        .text("metadata", metadata_str)
+        // Campo "content" come parte binaria
+        .part(
+            "content",
+            reqwest::multipart::Part::bytes(write_request.data.clone().unwrap_or_default())
+                .file_name("file") // Aggiungi filename se necessario
+                .mime_str("application/octet-stream")
+                .map_err(ClientError::Http)?
+        );
+
+    println!("✅ [FORM] Form multipart creato");
+
+    // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
+    let mut headers = self.auth_headers();
+    headers.remove(reqwest::header::CONTENT_TYPE);
+    println!("🔍 [HEADERS] Headers finali: {:?}", headers);
+
+    println!("🔍 [REQUEST] Invio richiesta HTTP PUT...");
+    let response = self
+        .http_client
+        .put(&url)
+        .headers(headers)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(ClientError::Http)?;
+
+    println!("✅ [RESPONSE] Risposta ricevuta: status={}", response.status());
+
+    self.handle_empty_response(response).await
+}
     // Crea directory
-    pub async fn create_directory(&self, create_request: &CreateDirectoryRequest) -> Result<(), ClientError> {
-        let url = self.build_url(&format!("/mkdir{}", create_request.path));
-
+    pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
+    let url = self.build_url("/mkdir", Some(path));
 
         let response = self
             .http_client
             .post(&url)
             .headers(self.auth_headers())
-            .json(&create_request)
             .send()
             .await?;
 
@@ -201,14 +340,13 @@ impl RemoteClient {
     }
 
     // Elimina file o directory
-    pub async fn delete(&self, delete_request: &DeleteRequest) -> Result<(), ClientError> {
-        let url = self.build_url(&format!("/files{}", delete_request.path));
+    pub async fn delete(&self, path: &str) -> Result<(), ClientError> {
+    let url = self.build_url("/files", Some(path));
 
         let response = self
             .http_client
             .delete(&url)
             .headers(self.auth_headers())
-            .json(delete_request)
             .send()
             .await?;
 
