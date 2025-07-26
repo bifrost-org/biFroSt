@@ -137,10 +137,9 @@ filesRouter.delete(
 );
 
 // GET /list/:path
-// TODO: make this work for root entries. Maybe a special path
-filesRouter.get("/list/:path", async (req: Request, res: Response) => {
+filesRouter.get("/list/:path?", async (req: Request, res: Response) => {
   try {
-    const dirPath = `${USER_PATH}${req.params.path}`;
+    const dirPath = `${USER_PATH}${req.params.path ?? ""}`;
     const stat = await fs.stat(dirPath);
     if (!stat.isDirectory()) {
       res
