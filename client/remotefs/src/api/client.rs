@@ -33,19 +33,43 @@ pub enum ClientError {
     Serialization(#[from] serde_json::Error),
 }
 
+// Funzioni helper per gestire i path
 fn remove_last_part(path: &str) -> String {
-    if let Some(pos) = path.rfind('/') {
-        path[..pos].to_string()
+    if path == "/" {
+        return "/".to_string();
+    }
+    
+    // Rimuovi trailing slash se presente
+    let clean_path = path.trim_end_matches('/');
+    
+    // Se il path inizia con '/', trova l'ultimo '/'
+    if let Some(last_slash) = clean_path.rfind('/') {
+        if last_slash == 0 {
+            // Se l'ultimo slash è all'inizio, siamo nella root
+            "/".to_string()
+        } else {
+            clean_path[..last_slash].to_string()
+        }
     } else {
-        "/".to_string() // Se non c'è '/', ritorna la root
+        // Nessun slash trovato, restituisci root
+        "/".to_string()
     }
 }
 
 fn take_last_part(path: &str) -> String {
-    if let Some(pos) = path.rfind('/') {
-        path[pos + 1..].to_string()
+    if path == "/" {
+        return "".to_string();
+    }
+    
+    // Rimuovi trailing slash se presente
+    let clean_path = path.trim_end_matches('/');
+    
+    // Trova l'ultimo '/' e prendi tutto quello che segue
+    if let Some(last_slash) = clean_path.rfind('/') {
+        clean_path[last_slash + 1..].to_string()
     } else {
-        path.to_string() // Se non c'è '/', ritorna l'intero path
+        // Nessun slash, restituisci l'intero path
+        clean_path.to_string()
     }
 }
 
@@ -139,45 +163,80 @@ fn build_url(&self, base_route: &str, path_param: Option<&str>) -> String {
         headers
     }
 
-    // Ottieni metadati di un singolo file/directory
-    pub async fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
+// Ottieni metadati di un singolo file/directory
+pub async fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
+    println!("🔍 [METADATA] Inizio get_file_metadata per path: {}", path);
+    
     let last_part = take_last_part(path);
     let parent_path = remove_last_part(path);
     
-    // Usa la nuova firma di build_url
-    let url = self.build_url("/list", Some(&parent_path));
+    println!("🔍 [METADATA] Path scomposto:");
+    println!("  - File name: '{}'", last_part);
+    println!("  - Parent path: '{}'", parent_path);
+    
+    // Assicurati che il parent_path sia corretto per la root
+    let list_path = if parent_path == "/" { 
+        "" // Per la root, usa stringa vuota nel listing
+    } else {
+        &parent_path
+    };
+    
+    let url = self.build_url("/list", if list_path.is_empty() { None } else { Some(list_path) });
+    println!("🔍 [METADATA] URL per listing: {}", url);
 
-        let response = self
-            .http_client
-            .get(&url)
-            .headers(self.auth_headers())
-            .send()
-            .await?;
+    let response = self
+        .http_client
+        .get(&url)
+        .headers(self.auth_headers())
+        .send()
+        .await?;
 
-        let directory_listing: Result<DirectoryListing, ClientError> =
-            self.handle_response(response).await;
+    println!("🔍 [METADATA] Response status: {}", response.status());
 
-        match directory_listing {
-            Ok(dir) => {
-                let file = dir.files.iter().find(|f| f.name == last_part);
-                if file.is_none() {
-                    return Err(ClientError::NotFound {
-                        path: path.to_string(),
-                    });
-                }
 
-                let mut ret = file.unwrap().clone();
-                ret.name = path.to_string(); // Aggiorna il nome con il path completo
-                
-                Ok(ret)
+    let directory_listing: Result<DirectoryListing, ClientError> =
+        self.handle_response(response).await;
+
+    match directory_listing {
+        Ok(dir) => {
+            println!("🔍 [METADATA] Directory listing ottenuto, {} file trovati:", dir.files.len());
+            for (i, file) in dir.files.iter().enumerate() {
+                println!("  {}. '{}' ({})", i+1, file.name, 
+                    if file.is_directory { "dir" } else { "file" });
             }
-            Err(ClientError::NotFound { path }) => Err(ClientError::NotFound { path }),
-            Err(err) => Err(ClientError::Server {
+            
+            println!("🔍 [METADATA] Cerco file con nome: '{}'", last_part);
+            let file = dir.files.iter().find(|f| {
+                println!("  Confronto: '{}' == '{}' -> {}", f.name, last_part, f.name == last_part);
+                f.name == last_part
+            });
+            
+            if file.is_none() {
+                println!("❌ [METADATA] File '{}' non trovato nel listing", last_part);
+                return Err(ClientError::NotFound {
+                    path: path.to_string(),
+                });
+            }
+
+            let mut ret = file.unwrap().clone();
+            ret.name = path.to_string(); // Aggiorna il nome con il path completo
+            
+            println!("✅ [METADATA] File trovato e metadati preparati");
+            Ok(ret)
+        }
+        Err(ClientError::NotFound { path }) => {
+            println!("❌ [METADATA] Directory padre non trovata: {}", path);
+            Err(ClientError::NotFound { path })
+        }
+        Err(err) => {
+            println!("❌ [METADATA] Errore listing directory: {}", err);
+            Err(ClientError::Server {
                 status: 500,
                 message: format!("Failed to list directory: {}", err),
-            }),
+            })
         }
     }
+}
 
 pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
     
