@@ -1,29 +1,71 @@
 use std::path::PathBuf;
-use remotefs::config::settings::Config;
+use remotefs::{api::client::RemoteClient, config::settings::Config, fs::operations::RemoteFileSystem};
+use fuser::mount2;
 
-fn main() {
-    // Crea un file di configurazione di esempio
-    let config_path = PathBuf::from("config.toml");
+#[tokio::main]
+async fn main() {
+    // Configurazione standard
+    let config = Config {
+        server_url: "192.168.56.1".to_string(),
+        port: 3000,
+        mount_point: PathBuf::from("/tmp/remotefs_mount"),
+        api_key: None,
+        username: None,
+        password: None,
+        timeout: std::time::Duration::from_secs(60),
+    };
+
+    println!("🚀 Avvio RemoteFS...");
+    println!("📡 Server: {}", config.server_full_url());
+    println!("📁 Mount point: {:?}", config.mount_point);
+
+    // Crea la directory di mount se non esiste
+    if !config.mount_point.exists() {
+        std::fs::create_dir_all(&config.mount_point)
+            .expect("Impossibile creare directory di mount");
+        println!("✅ Directory di mount creata");
+    }
     
-    // Prova a caricare la configurazione
-    match Config::from_file(&config_path) {
-        Ok(config) => {
-            println!("Configuration loaded successfully!");
-            println!("Server URL: {}", config.server_full_url());
-            println!("Mount point: {:?}", config.mount_point);
-            println!("Has authentication: {}", config.has_auth());
-        },
-        Err(e) => {
-            println!("Error loading config: {}", e);
+    // Crea il filesystem
+    let filesystem = RemoteFileSystem::new(RemoteClient::new(&config));
+    println!("✅ Filesystem inizializzato");
+
+    use fuser::MountOption;
+
+    // Opzioni di mount FUSE
+    let options = [
+        MountOption::RW,
+        MountOption::FSName("remotefs".to_string()),
+    ];
+
+    println!("🔧 Montaggio filesystem su {:?}...", config.mount_point);
+    
+    // Clona il mount point prima del move
+    let mount_point_clone = config.mount_point.clone();
+    
+    // Spawna il mount in un task bloccante
+    let mount_result = tokio::task::spawn_blocking(move || {
+        mount2(filesystem, &config.mount_point, &options)
+    }).await;
+
+    match mount_result {
+        Ok(Ok(())) => {
+            println!("✅ Filesystem montato con successo!");
+            println!("🔍 Puoi ora esplorare: {:?}", mount_point_clone);
+            println!("🔄 Il processo rimarrà attivo per mantenere il mount...");
             
-            // Crea una configurazione di default e salvala
-            println!("Creating default configuration...");
-            let default_config = Config::default();
-            
-            match default_config.save_to_file(&config_path) {
-                Ok(_) => println!("Default config saved to {:?}", config_path),
-                Err(save_err) => println!("Error saving default config: {}", save_err),
+            // Mantieni il processo attivo
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
+        }
+        Ok(Err(e)) => {
+            eprintln!("❌ Errore nel montaggio: {}", e);
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("❌ Errore nel task di mount: {}", e);
+            std::process::exit(1);
         }
     }
 }

@@ -417,4 +417,247 @@ async fn test_rename_in_place() {
     println!("✅ TEST COMPLETATO: Rinominazione funziona");
 }
 
+// da qui alcuni non funzionano perchè c'è il problema che non mi restituisce gli elementi della route
+
+#[tokio::test]
+async fn test_get_file_metadata() {
+    let client = create_test_client();
+    
+    // Setup: crea un file di test
+    let test_file = "/metadata_test_file.txt";
+    let content = "File per testare i metadati".as_bytes().to_vec();
+    
+    println!("📋 TEST: Get file metadata per {}", test_file);
+    
+    // 1. Crea il file
+    println!("📄 STEP 1: Creazione file di test");
+    let write_request = WriteRequest {
+        path: test_file.to_string(),
+        size: Some(content.len() as u64),
+        data: Some(content.clone()),
+        new_path: None,
+        permissions_octal: Some("644".to_string()),
+        last_modified: Some(chrono::Utc::now().to_rfc3339()),
+    };
+    
+    match client.write_file(&write_request).await {
+        Ok(()) => println!("✅ SUCCESS: File di test creato"),
+        Err(e) => {
+            println!("❌ ERROR: Errore creazione file: {}", e);
+            assert!(false, "Fallimento creazione file: {}", e);
+        }
+    }
+    
+    // 2. Ottieni i metadati del file
+    println!("🔍 STEP 2: Recupero metadati file");
+    match client.get_file_metadata(test_file).await {
+        Ok(metadata) => {
+            println!("✅ SUCCESS: Metadati recuperati");
+            println!("  📁 Nome: {}", metadata.name);
+            println!("  📏 Dimensione: {} bytes", metadata.size);
+            println!("  🔒 Permessi: {}", metadata.permissions_octal);
+            println!("  📅 Ultima modifica: {}", metadata.last_modified);
+            println!("  📂 È directory: {}", metadata.is_directory);
+            
+            // Verifica che i metadati siano corretti
+            assert_eq!(metadata.name, test_file, "Nome file non corrisponde");
+            assert_eq!(metadata.size, content.len() as u64, "Dimensione file non corrisponde");
+            assert!(!metadata.is_directory, "Il file non dovrebbe essere marcato come directory");
+            assert!(metadata.permissions_octal.contains("64"), "Permessi non corrispondono");
+            
+            println!("✅ VERIFICA: Tutti i metadati sono corretti");
+        }
+        Err(e) => {
+            println!("❌ ERROR: Errore recupero metadati: {}", e);
+            assert!(false, "Fallimento get_file_metadata: {}", e);
+        }
+    }
+    
+    // Pulizia
+    let _ = client.delete(test_file).await;
+    println!("✅ TEST COMPLETATO: get_file_metadata funziona correttamente");
+}
+
+#[tokio::test]
+async fn test_get_directory_metadata() {
+    let client = create_test_client();
+    
+    let test_dir = "/metadata_test_directory";
+    
+    println!("📂 TEST: Get directory metadata per {}", test_dir);
+    
+    // 1. Crea la directory
+    println!("📁 STEP 1: Creazione directory di test");
+    match client.create_directory(test_dir).await {
+        Ok(()) => println!("✅ SUCCESS: Directory di test creata"),
+        Err(e) => {
+            println!("❌ ERROR: Errore creazione directory: {}", e);
+            assert!(false, "Fallimento creazione directory: {}", e);
+        }
+    }
+    
+    // 2. Ottieni i metadati della directory
+    println!("🔍 STEP 2: Recupero metadati directory");
+    match client.get_file_metadata(test_dir).await {
+        Ok(metadata) => {
+            println!("✅ SUCCESS: Metadati directory recuperati");
+            println!("  📁 Nome: {}", metadata.name);
+            println!("  📏 Dimensione: {} bytes", metadata.size);
+            println!("  🔒 Permessi: {}", metadata.permissions_octal);
+            println!("  📅 Ultima modifica: {}", metadata.last_modified);
+            println!("  📂 È directory: {}", metadata.is_directory);
+            
+            // Verifica che sia marcata come directory
+            assert!(metadata.is_directory, "La directory dovrebbe essere marcata come directory");
+            assert_eq!(metadata.name, test_dir, "Nome directory non corrisponde");
+            
+            println!("✅ VERIFICA: Metadati directory corretti");
+        }
+        Err(e) => {
+            println!("❌ ERROR: Errore recupero metadati directory: {}", e);
+            assert!(false, "Fallimento get_file_metadata per directory: {}", e);
+        }
+    }
+    
+    // Pulizia
+    let _ = client.delete(test_dir).await;
+    println!("✅ TEST COMPLETATO: get_file_metadata per directory funziona");
+}
+
+#[tokio::test]
+async fn test_get_file_metadata_nested() {
+    let client = create_test_client();
+    
+    // Test con file in subdirectory
+    let test_dir = "/nested_test_dir";
+    let test_file = "/nested_test_dir/nested_file.txt";
+    let content = "File in subdirectory".as_bytes().to_vec();
+    
+    println!("📂 TEST: Get metadata file in subdirectory {}", test_file);
+    
+    // 1. Crea directory
+    println!("📁 STEP 1: Creazione directory");
+    match client.create_directory(test_dir).await {
+        Ok(()) => println!("✅ SUCCESS: Directory creata"),
+        Err(e) => println!("⚠️  WARNING: {}", e),
+    }
+    
+    // 2. Crea file in subdirectory
+    println!("📄 STEP 2: Creazione file in subdirectory");
+    let write_request = WriteRequest {
+        path: test_file.to_string(),
+        size: Some(content.len() as u64),
+        data: Some(content.clone()),
+        new_path: None,
+        permissions_octal: Some("644".to_string()),
+        last_modified: Some(chrono::Utc::now().to_rfc3339()),
+    };
+    
+    match client.write_file(&write_request).await {
+        Ok(()) => println!("✅ SUCCESS: File in subdirectory creato"),
+        Err(e) => assert!(false, "Fallimento creazione file: {}", e),
+    }
+    
+    // 3. Ottieni metadati del file nested
+    println!("🔍 STEP 3: Recupero metadati file nested");
+    match client.get_file_metadata(test_file).await {
+        Ok(metadata) => {
+            println!("✅ SUCCESS: Metadati file nested recuperati");
+            println!("  📁 Nome: {}", metadata.name);
+            println!("  📏 Dimensione: {} bytes", metadata.size);
+            println!("  📂 È directory: {}", metadata.is_directory);
+            
+            assert_eq!(metadata.name, test_file, "Nome file nested non corrisponde");
+            assert_eq!(metadata.size, content.len() as u64, "Dimensione file nested non corrisponde");
+            assert!(!metadata.is_directory, "File nested non dovrebbe essere directory");
+            
+            println!("✅ VERIFICA: Metadati file nested corretti");
+        }
+        Err(e) => assert!(false, "Fallimento get_file_metadata per file nested: {}", e),
+    }
+    
+    // Pulizia
+    let _ = client.delete(test_file).await;
+    let _ = client.delete(test_dir).await;
+    println!("✅ TEST COMPLETATO: get_file_metadata per file nested funziona");
+}
+
+#[tokio::test]
+async fn test_get_file_metadata_not_found() {
+    let client = create_test_client();
+    
+    let non_existent_file = "/this_file_does_not_exist.txt";
+    
+    println!("❌ TEST: Get metadata file inesistente {}", non_existent_file);
+    
+    // Tenta di ottenere metadati di un file che non esiste
+    match client.get_file_metadata(non_existent_file).await {
+        Ok(_) => {
+            println!("❌ ERROR: Il file inesistente ha restituito metadati");
+            assert!(false, "File inesistente non dovrebbe restituire metadati");
+        }
+        Err(ClientError::NotFound { path }) => {
+            println!("✅ SUCCESS: Correttamente restituito NotFound per file inesistente");
+            println!("  📁 Path: {}", path);
+            assert_eq!(path, non_existent_file, "Path nell'errore non corrisponde");
+        }
+        Err(e) => {
+            println!("❌ ERROR: Errore imprevisto: {}", e);
+            assert!(false, "Errore imprevisto per file inesistente: {}", e);
+        }
+    }
+    
+    println!("✅ TEST COMPLETATO: get_file_metadata gestisce correttamente file inesistenti");
+}
+
+#[tokio::test]
+async fn test_get_file_metadata_root_files() {
+    let client = create_test_client();
+    
+    println!("📂 TEST: Get metadata files nella root");
+    
+    // Prima ottieni la lista dei file nella root
+    match client.list_directory("/").await {
+        Ok(listing) => {
+            if listing.files.is_empty() {
+                println!("⚠️  WARNING: Nessun file nella root per testare");
+                return;
+            }
+            
+            println!("🔍 Trovati {} file nella root", listing.files.len());
+            
+            // Testa i metadati del primo file
+            let first_file = &listing.files[0];
+            println!("🔍 Testing metadati per: {}", first_file.name);
+            
+            match client.get_file_metadata(&first_file.name).await {
+                Ok(metadata) => {
+                    println!("✅ SUCCESS: Metadati recuperati per file esistente");
+                    println!("  📁 Nome: {}", metadata.name);
+                    println!("  📏 Dimensione: {} bytes", metadata.size);
+                    println!("  📂 È directory: {}", metadata.is_directory);
+                    
+                    // Verifica che i metadati corrispondano a quelli del listing
+                    assert_eq!(metadata.name, first_file.name);
+                    assert_eq!(metadata.size, first_file.size);
+                    assert_eq!(metadata.is_directory, first_file.is_directory);
+                    
+                    println!("✅ VERIFICA: Metadati consistenti con il listing");
+                }
+                Err(e) => {
+                    println!("❌ ERROR: {}", e);
+                    assert!(false, "Fallimento get_file_metadata per file esistente: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            println!("❌ ERROR: Impossibile listare directory root: {}", e);
+            assert!(false, "Fallimento list_directory: {}", e);
+        }
+    }
+    
+    println!("✅ TEST COMPLETATO: get_file_metadata per file root funziona");
+}
+
+
 }
