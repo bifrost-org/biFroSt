@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   bifrost-server:
     image: emanuelefrisi/bifrost-server:latest

@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon ./src/index.ts",
-    "build": "npx tsc --project tsconfig.build.json && cpx package.json dist/",
+    "build": "npx tsc --project tsconfig.build.json",
     "lint": "npx eslint . --max-warnings 0 --report-unused-disable-directives",
     "lint-check": "npx eslint . --max-warnings 0",
     "format": "npx prettier . --write",
