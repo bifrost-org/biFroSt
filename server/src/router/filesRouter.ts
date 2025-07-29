@@ -12,14 +12,22 @@ const USER_PATH = process.env.USER_PATH;
 
 // GET /files/:path
 filesRouter.get(
-  "/files/:path",
+  "/files/:path?",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!req.params.path || req.params.path.includes(".."))
+        return next(FileError.InvalidPath());
+
       const filePath = `${USER_PATH}${req.params.path}`;
-      const content = await fs.readFile(filePath);
-      res.status(StatusCodes.OK).send(content);
-    } catch {
-      next(FileError.NotFound());
+      const fileContent = await fs.readFile(filePath);
+      res.status(StatusCodes.OK).send(fileContent);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        next(FileError.NotFound());
+      } else {
+        next(e);
+      }
     }
   }
 );
