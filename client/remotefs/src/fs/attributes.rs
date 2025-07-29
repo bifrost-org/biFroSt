@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use crate::api::models::MetaFile;
 
 // Funzioni helper per creare FileAttr
-pub fn new_file_attr(ino: u64, size: u64) -> FileAttr {
+pub fn new_file_attr(ino: u64, size: u64, permission_octal: u32) -> FileAttr {
     let now = SystemTime::now();
     FileAttr {
         ino,
@@ -15,7 +15,7 @@ pub fn new_file_attr(ino: u64, size: u64) -> FileAttr {
         ctime: now,
         crtime: now,
         kind: FileType::RegularFile,
-        perm: 0o644,
+        perm: permission_octal as u16,
         nlink: 1,
         uid: 1000,
         gid: 1000,
@@ -25,7 +25,7 @@ pub fn new_file_attr(ino: u64, size: u64) -> FileAttr {
     }
 }
 
-pub fn new_directory_attr(ino: u64) -> FileAttr {
+pub fn new_directory_attr(ino: u64, permission_octal: u32) -> FileAttr {
     let now = SystemTime::now();
     FileAttr {
         ino,
@@ -35,8 +35,8 @@ pub fn new_directory_attr(ino: u64) -> FileAttr {
         mtime: now,
         ctime: now,
         crtime: now,
-        kind: FileType::Directory,
-        perm: 0o755,
+        kind: FileType::Directory, // Directory
+        perm: permission_octal as u16,
         nlink: 2,
         uid: 1000,
         gid: 1000,

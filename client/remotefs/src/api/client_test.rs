@@ -417,8 +417,7 @@ async fn test_rename_in_place() {
     println!("✅ TEST COMPLETATO: Rinominazione funziona");
 }
 
-// da qui alcuni non funzionano perchè c'è il problema che non mi restituisce gli elementi della route
-
+// non corrispondono i permessi
 #[tokio::test]
 async fn test_get_file_metadata() {
     let client = create_test_client();
