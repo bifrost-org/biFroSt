@@ -127,19 +127,31 @@ filesRouter.put("/files/:path", async (req: Request, res: Response) => {
 
 // DELETE /files/:path
 filesRouter.delete(
-  "/files/:path",
+  "/files/:path?",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!req.params.path || req.params.path.includes(".."))
+        return next(FileError.InvalidPath());
+
       const filePath = `${USER_PATH}${req.params.path}`;
       const stat = await fs.stat(filePath);
+
       if (stat.isDirectory()) {
-        await fs.rm(filePath, { recursive: true, force: true });
+        await fs.rmdir(filePath);
       } else {
         await fs.unlink(filePath);
       }
+
       res.status(StatusCodes.NO_CONTENT).send();
-    } catch {
-      next(FileError.NotFound());
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        next(FileError.NotFound());
+      } else if (code === "ENOTEMPTY") {
+        next(FileError.DirectoryNotEmpty());
+      } else {
+        next(e);
+      }
     }
   }
 );
