@@ -24,11 +24,11 @@ A collection representing the remote files accessible through the mounted virtua
 
 ### Supported requests
 
-- [GET `/files/{path}`](#get-filespath) – Retrieve the a file
-- [PUT `/files/{path}`](#put-filespath) – Create or modify a file
+- [GET `/files/{path}`](#get-filespath) – Retrieve a file
+- [PUT `/files/{path}`](#put-filespath) – Create or update a file
 - [DELETE `/files/{path}`](#delete-filespath) – Delete a file
-- [GET /list/{path}]
-- [POST /mkdir/{path}]
+- [GET /list/{path}](#get-listpath) - Retrieve the list of files inside a folder
+- [POST /mkdir/{path}](#post-mkdirpath) - Create a new folder
 
 ## GET `/files/{path}`
 
@@ -51,7 +51,7 @@ Returns the file contents as raw binary.
 This API can return the following error codes:
 
 - `400 Bad Request`: The provided path is invalid or malformed.
-- `401 Unauthorized`: The user is not authenticated.
+- `401 Unauthorized`: The user is not authenticated. TODO:
 - `404 Not Found`: The file does not exist.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 

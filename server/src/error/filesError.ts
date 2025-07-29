@@ -8,7 +8,11 @@ export class FileError extends Error {
     this.statusCode = statusCode;
   }
 
-  static NotFound(message = "File or directory not found") {
+  static NotFound(message = "No such file or directory") {
     return new FileError(message, StatusCodes.NOT_FOUND);
+  }
+
+  static InvalidPath(message = "The provided path is invalid or malformed") {
+    return new FileError(message, StatusCodes.BAD_REQUEST);
   }
 }
