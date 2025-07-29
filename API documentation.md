@@ -1,20 +1,10 @@
-# CloudMount API Documentation
+# biFrǫSt API Documentation
 
 # Index
 
-1. [Base URL](#base-url)
-2. Collections  
-   2.1. [Collection `files`](#collection-documents)  
-   2.2. [Collection `sessions`](#collection-sessions)  
-   2.3. [Collection `users`](#collection-users)
-
-<br/>
-
-# Base URL
-
-The base URL for all API requests is:
-
-`https://oberon-torino.ddns.net:3000`
+1. [Collection `files`](#collection-documents)
+2. [Collection `sessions`](#collection-sessions)
+3. [Collection `users`](#collection-users)
 
 <br/>
 
@@ -27,8 +17,8 @@ A collection representing the remote files accessible through the mounted virtua
 - [GET `/files/{path}`](#get-filespath) – Retrieve a file
 - [PUT `/files/{path}`](#put-filespath) – Create or update a file
 - [DELETE `/files/{path}`](#delete-filespath) – Delete a file
-- [GET /list/{path}](#get-listpath) - Retrieve the list of files inside a folder
-- [POST /mkdir/{path}](#post-mkdirpath) - Create a new folder
+- [GET `/list/{path}`](#get-listpath) - Retrieve the list of files inside a folder
+- [POST `/mkdir/{path}`](#post-mkdirpath) - Create a new folder
 
 ## GET `/files/{path}`
 
@@ -151,7 +141,7 @@ Delete a file or directory at the specified path.
 
 ### Errors
 
-- `400 Bad Request`: The path is invalid or malformed.
+- `400 Bad Request`: The path is invalid or malformed or the directory is not empty.
 - `401 Unauthorized`: The user is not authenticated.
 - `404 Not Found`: The specified file or directory does not exist.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
