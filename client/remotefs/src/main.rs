@@ -6,9 +6,9 @@ use fuser::mount2;
 async fn main() {
     // Configurazione standard
     let config = Config {
-        server_url: "192.168.56.1".to_string(),
+        server_url: "http://192.168.56.1".to_string(),
         port: 3000,
-        mount_point: PathBuf::from("/tmp/remotefs_mount"),
+        mount_point: PathBuf::from("/tmp/remotefs_mount2"),
         api_key: None,
         username: None,
         password: None,
