@@ -4,7 +4,8 @@ import fs from "fs/promises";
 import fsSync from "fs";
 import multiparty from "multiparty";
 import path from "path";
-import { FileError } from "../error/filesError";
+import { FsEntry, getNodeType } from "../model/file";
+import { FileError } from "../error/fileError";
 
 export const filesRouter: Router = Router();
 
@@ -157,64 +158,63 @@ filesRouter.delete(
 );
 
 // GET /list/:path
-filesRouter.get("/list/:path?", async (req: Request, res: Response) => {
-  try {
-    const dirPath = `${USER_PATH}${req.params.path ?? ""}`;
-    const stat = await fs.stat(dirPath);
-    if (!stat.isDirectory()) {
-      res
-        .status(StatusCodes.BAD_REQUEST) // TODO: make this a FileError
-        .send({ error: "Path is not a directory" });
-      return;
-    }
+filesRouter.get(
+  "/list/:path?",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (req.params.path && req.params.path.includes(".."))
+        return next(FileError.InvalidPath());
 
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      const entryPath = `${USER_PATH}${req.params.path ?? ""}`;
 
-    const result = await Promise.all(
-      entries.map(async (entry) => {
-        const entryPath = path.join(dirPath, entry.name);
-        const stats = await fs.stat(entryPath);
-        return {
+      const stats = await fs.stat(entryPath);
+
+      // if the entry is a file, the output will be an array with a single object containing its metadata
+      if (!stats.isDirectory()) {
+        const parentDirPath = path.dirname(entryPath);
+        const entries = await fs.readdir(parentDirPath, {
+          withFileTypes: true,
+        });
+        const entry = entries.find((e) => e.name === path.basename(entryPath))!; // cannot be undefined
+        const fsEntry: FsEntry = {
           name: entry.name,
-          isDirectory: entry.isDirectory(),
-          size: entry.isDirectory() ? 0 : stats.size,
-          permissions: fsSync.existsSync(entryPath) // TODO: check this part
-            ? fsSync.statSync(entryPath).mode.toString(8).slice(-3) // mock POSIX-style
-            : "rw-",
+          type: getNodeType(entry, stats),
+          size: stats.size,
+          permissions: (stats.mode & 0o777).toString(8), // octal mask to isolate permissions bits
           lastModified: stats.mtime.toISOString(),
         };
-      })
-    );
 
-    res.status(StatusCodes.OK).json(result);
-  } catch (err: unknown) {
-    // TODO: make these errors into FileErrors
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      err.code === "ENOENT"
-    ) {
-      res.status(StatusCodes.NOT_FOUND).send({ error: "Directory not found" });
-    } else if (
-      typeof err === "object" &&
-      err !== null &&
-      "message" in err &&
-      typeof err.message === "string" &&
-      err.message.includes("Access denied")
-    ) {
-      res.status(StatusCodes.BAD_REQUEST).send({ error: "Path is malformed" });
-    } else {
-      res.status(StatusCodes.INTERNAL_SERVER_ERROR).send({
-        error: "Unexpected error",
-        description:
-          typeof err === "object" && err !== null && "message" in err
-            ? err.message
-            : String(err),
-      });
+        return res.status(StatusCodes.OK).json([fsEntry]);
+      }
+
+      const dirPath = entryPath; // the entry is now assumed to be a directory
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+      const result = await Promise.all(
+        entries.map(async (entry) => {
+          const entryPath = path.join(dirPath, entry.name);
+          const stats = await fs.stat(entryPath);
+          return {
+            name: entry.name,
+            type: getNodeType(entry, stats),
+            size: entry.isDirectory() ? 0 : stats.size,
+            permissions: (stats.mode & 0o777).toString(8),
+            lastModified: stats.mtime.toISOString(),
+          } satisfies FsEntry;
+        })
+      );
+
+      res.status(StatusCodes.OK).json(result);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        next(FileError.NotFound());
+      } else {
+        next(e);
+      }
     }
   }
-});
+);
 
 // POST /mkdir/:path
 filesRouter.post("/mkdir/:path", async (req: Request, res: Response) => {
