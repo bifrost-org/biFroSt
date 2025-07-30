@@ -3,7 +3,7 @@ import { StatusCodes } from "http-status-codes";
 import fs from "fs/promises";
 import multiparty from "multiparty";
 import path from "path";
-import { FsEntry, getNodeType } from "../model/file";
+import { FileAttr, getNodeType } from "../model/file";
 import { FileError } from "../error/fileError";
 
 export const filesRouter: Router = Router();
@@ -175,12 +175,16 @@ filesRouter.get(
           withFileTypes: true,
         });
         const entry = entries.find((e) => e.name === path.basename(entryPath))!; // cannot be undefined
-        const fsEntry: FsEntry = {
+        const fsEntry: FileAttr = {
           name: entry.name,
-          type: getNodeType(entry),
           size: stats.size,
-          permissions: (stats.mode & 0o777).toString(8), // octal mask to isolate permissions bits
-          lastModified: stats.mtime.toISOString(),
+          atime: stats.atime.toISOString(),
+          mtime: stats.mtime.toISOString(),
+          ctime: stats.ctime.toISOString(),
+          crtime: stats.birthtime.toISOString(),
+          kind: getNodeType(entry),
+          perm: (stats.mode & 0o777).toString(8), // octal mask to isolate permissions bits
+          nlink: stats.nlink,
         };
 
         return res.status(StatusCodes.OK).json([fsEntry]);
@@ -195,11 +199,15 @@ filesRouter.get(
           const stats = await fs.stat(entryPath);
           return {
             name: entry.name,
-            type: getNodeType(entry),
-            size: entry.isDirectory() ? 0 : stats.size,
-            permissions: (stats.mode & 0o777).toString(8),
-            lastModified: stats.mtime.toISOString(),
-          } satisfies FsEntry;
+            size: stats.size,
+            atime: stats.atime.toISOString(),
+            mtime: stats.mtime.toISOString(),
+            ctime: stats.ctime.toISOString(),
+            crtime: stats.birthtime.toISOString(),
+            kind: getNodeType(entry),
+            perm: (stats.mode & 0o777).toString(8),
+            nlink: stats.nlink,
+          } satisfies FileAttr;
         })
       );
 

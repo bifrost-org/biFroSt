@@ -1,23 +1,28 @@
 import { Dirent } from "fs";
 
-export type FsEntry = {
+// type that is similar to: https://docs.rs/fuse/latest/fuse/struct.FileAttr.html
+export type FileAttr = {
   name: string;
-  type: NodeType;
   size: number;
-  permissions: string;
-  lastModified: string;
+  atime: string;
+  mtime: string;
+  ctime: string;
+  crtime: string;
+  kind: FileType;
+  perm: string;
+  nlink: number;
 };
 
-export enum NodeType {
-  File = "file",
+export enum FileType {
   Directory = "directory",
-  SoftLink = "soft_link",
+  RegularFile = "regular_file",
+  SymLink = "soft_link",
   HardLink = "hard_link",
 }
 
-export function getNodeType(entry: Dirent): NodeType {
-  if (entry.isSymbolicLink()) return NodeType.SoftLink;
-  if (entry.isDirectory()) return NodeType.Directory;
-  if (entry.isFile()) return NodeType.File;
+export function getNodeType(entry: Dirent): FileType {
+  if (entry.isSymbolicLink()) return FileType.SymLink;
+  if (entry.isDirectory()) return FileType.Directory;
+  if (entry.isFile()) return FileType.RegularFile;
   throw new Error("Unknown node type");
 }

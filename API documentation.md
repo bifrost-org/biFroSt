@@ -155,29 +155,36 @@ List the contents of a directory at the specified path.
 
 ### Response body
 
-Returns a JSON array of entry objects. If the path is a directory, the array contains all its entries; if it's a file, the array contains a single entry.
+Returns a JSON array of entry objects, each conforming to the table described here: TODO:
+If the path is a directory, the array contains all its entries; if it's a file, the array contains a single entry.
 Each object includes:
 
 ```json
 [
   {
-    "type": "file",
-    "lastModified": "2025-07-18T16:00:00Z",
-    "name": "test.txt",
-    "permissions": "666",
-    "size": 1024
+    "name": "file.txt",
+    "size": 2563,
+    "atime": "2025-07-30T09:39:54.099Z",
+    "mtime": "2025-07-30T09:39:50.446Z",
+    "ctime": "2025-07-30T09:39:50.446Z",
+    "crtime": "2025-07-30T09:39:45.796Z",
+    "kind": "regular_file",
+    "perm": "644",
+    "nlink": 1
   },
   {
-    "type": "directory",
-    "lastModified": "2025-07-17T10:15:32Z",
-    "name": "subfolder",
-    "permissions": "666",
-    "size": 0
+    "name": "directory",
+    "size": 4096,
+    "atime": "2025-07-30T16:26:30.682Z",
+    "mtime": "2025-07-30T14:41:09.969Z",
+    "ctime": "2025-07-30T14:41:12.797Z",
+    "crtime": "2025-07-30T14:41:09.969Z",
+    "kind": "directory",
+    "perm": "755",
+    "nlink": 2
   }
 ]
 ```
-
-> **Note**: Size is `0` for directories.
 
 ### Success status
 
