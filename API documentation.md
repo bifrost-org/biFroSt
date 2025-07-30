@@ -139,9 +139,10 @@ Delete a file or directory at the specified path.
 
 ### Errors
 
-- `400 Bad Request`: The provided path is invalid or malformed or the directory is not empty.
+- `400 Bad Request`: The provided path is invalid or malformed.
 - `401 Unauthorized`: The user is not authenticated. TODO:
 - `404 Not Found`: The specified file or directory does not exist.
+- `409 Conflict`: The directory at the provided path is not empty.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## GET `/list/{path}`
@@ -207,9 +208,11 @@ This endpoint does not require a request body.
 
 ### Errors
 
-- `400 Bad Request`: Path is invalid or already exists.
-- `401 Unauthorized`: User not authenticated.
-- `500 Internal Server Error`: Unexpected server error.
+- `400 Bad Request`: The provided path is invalid or malformed.
+- `401 Unauthorized`: User not authenticated. TODO:
+- `404 Not Found`: Parent directory does not exist.
+- `409 Conflict`: The directory at the provided path already exists.
+- `500 Internal Server Error`: An unexpected error occurred on the server.
 
 <br>
 

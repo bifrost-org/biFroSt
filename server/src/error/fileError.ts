@@ -11,7 +11,13 @@ export class FileError extends Error {
   static DirectoryNotEmpty(
     message = "The directory at the provided path is not empty"
   ) {
-    return new FileError(message, StatusCodes.BAD_REQUEST);
+    return new FileError(message, StatusCodes.CONFLICT);
+  }
+
+  static DirectoryAlreadyExists(
+    message = "The directory at the provided path already exists"
+  ) {
+    return new FileError(message, StatusCodes.CONFLICT);
   }
 
   static InvalidPath(message = "The provided path is invalid or malformed") {
