@@ -177,7 +177,7 @@ filesRouter.get(
         const entry = entries.find((e) => e.name === path.basename(entryPath))!; // cannot be undefined
         const fsEntry: FsEntry = {
           name: entry.name,
-          type: getNodeType(entry, stats),
+          type: getNodeType(entry),
           size: stats.size,
           permissions: (stats.mode & 0o777).toString(8), // octal mask to isolate permissions bits
           lastModified: stats.mtime.toISOString(),
@@ -195,7 +195,7 @@ filesRouter.get(
           const stats = await fs.stat(entryPath);
           return {
             name: entry.name,
-            type: getNodeType(entry, stats),
+            type: getNodeType(entry),
             size: entry.isDirectory() ? 0 : stats.size,
             permissions: (stats.mode & 0o777).toString(8),
             lastModified: stats.mtime.toISOString(),
