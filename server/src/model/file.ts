@@ -1,4 +1,4 @@
-import { Dirent, Stats } from "fs";
+import { Dirent } from "fs";
 
 export type FsEntry = {
   name: string;
@@ -15,9 +15,8 @@ export enum NodeType {
   HardLink = "hard_link",
 }
 
-export function getNodeType(entry: Dirent, stats: Stats): NodeType {
+export function getNodeType(entry: Dirent): NodeType {
   if (entry.isSymbolicLink()) return NodeType.SoftLink;
-  if (stats.nlink > 1 && stats.isFile()) return NodeType.HardLink;
   if (entry.isDirectory()) return NodeType.Directory;
   if (entry.isFile()) return NodeType.File;
   throw new Error("Unknown node type");
