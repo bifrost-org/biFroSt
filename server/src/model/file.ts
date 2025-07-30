@@ -16,9 +16,9 @@ export enum NodeType {
 }
 
 export function getNodeType(entry: Dirent, stats: Stats): NodeType {
-  if (entry.isFile()) return NodeType.File;
-  if (entry.isDirectory()) return NodeType.Directory;
   if (entry.isSymbolicLink()) return NodeType.SoftLink;
   if (stats.nlink > 1 && stats.isFile()) return NodeType.HardLink;
+  if (entry.isDirectory()) return NodeType.Directory;
+  if (entry.isFile()) return NodeType.File;
   throw new Error("Unknown node type");
 }

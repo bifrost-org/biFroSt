@@ -111,8 +111,6 @@ Correctly naming these fields is required for the server to correctly parse and 
 - If it **does exist**, it is **overwritten completely**, both content and metadata.
 - If `newPath` is provided, the file is **moved** (renamed or relocated) to that path, replacing any existing file.
 
----
-
 ### Success status
 
 - `201 Created`: File created.
@@ -125,7 +123,7 @@ Correctly naming these fields is required for the server to correctly parse and 
 - `403 Forbidden`: User not allowed to write or move the file.
 - `404 Not Found`: Source file not found.
 - `409 Conflict`: Cannot overwrite destination path (e.g., locked).
-- `500 Internal Server Error`: Unexpected server error.
+- `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## DELETE `/files/{path}`
 
@@ -141,8 +139,8 @@ Delete a file or directory at the specified path.
 
 ### Errors
 
-- `400 Bad Request`: The path is invalid or malformed or the directory is not empty.
-- `401 Unauthorized`: The user is not authenticated.
+- `400 Bad Request`: The provided path is invalid or malformed or the directory is not empty.
+- `401 Unauthorized`: The user is not authenticated. TODO:
 - `404 Not Found`: The specified file or directory does not exist.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
@@ -156,23 +154,23 @@ List the contents of a directory at the specified path.
 
 ### Response body
 
-Returns a JSON array containing objects for each entry in the directory.
+Returns a JSON array of entry objects. If the path is a directory, the array contains all its entries; if it's a file, the array contains a single entry.
 Each object includes:
 
 ```json
 [
   {
-    "isDirectory": false,
+    "type": "file",
     "lastModified": "2025-07-18T16:00:00Z",
     "name": "test.txt",
-    "permissions": "rw-r--r--",
+    "permissions": "666",
     "size": 1024
   },
   {
-    "isDirectory": true,
+    "type": "directory",
     "lastModified": "2025-07-17T10:15:32Z",
     "name": "subfolder",
-    "permissions": "rwxr-xr-x",
+    "permissions": "666",
     "size": 0
   }
 ]
@@ -182,16 +180,14 @@ Each object includes:
 
 ### Success status
 
-- `200 OK`: Directory contents returned successfully.
+- `200 OK`: Entry metadata returned successfully.
 
 ### Errors
 
-- `400 Bad Request`: Path is malformed or path represents a file.
-- `401 Unauthorized`: User not authenticated.
-- `404 Not Found`: Directory does not exist.
-- `500 Internal Server Error`: Unexpected error on the server.
-
----
+- `400 Bad Request`: The provided path is invalid or malformed.
+- `401 Unauthorized`: User not authenticated. TODO:
+- `404 Not Found`: The specified entry does not exist.
+- `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## POST `/mkdir/{path}`
 
