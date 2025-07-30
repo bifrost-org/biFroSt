@@ -47,10 +47,10 @@ This API can return the following error codes:
 
 ## PUT `/files/{path}`
 
-Create or replace the file at the specified path with the given content and metadata.
-This operation can also be used to **move the file** to a new location.
+Create or replace the file at the specified path with the given content and metadata. You can provide content, metadata, or both.
 
-> **Note:** Being a `PUT` request, all supported fields must be provided — both content and metadata.
+- To create an empty file, you may omit the content or send it as empty.
+- To update metadata only, send the metadata fields without content.
 
 ### Path parameters
 
@@ -61,30 +61,36 @@ This operation can also be used to **move the file** to a new location.
 
 This request uses `multipart/form-data` with:
 
-#### `Metadata` (part 1 — JSON)
+#### `Metadata` (part 1 - JSON)
 
 Full description of the file’s metadata and optional new path:
 
-| **Field**      | **Description**                                          | **Type**               | **Required** |
-| -------------- | -------------------------------------------------------- | ---------------------- | ------------ |
-| `newPath`      | If provided, the file will be **moved** to this new path | `string` (URL-encoded) | No           |
-| `size`         | Size in bytes of the content                             | `number`               | Yes          |
-| `permissions`  | File permission string (e.g. `rw-r--r--`)                | `string`               | Yes          |
-| `lastModified` | Last modified timestamp (ISO 8601)                       | `string`               | Yes          |
+| **Field**    | **Description**                                                                               | **Type**               | **Required** |
+| ------------ | --------------------------------------------------------------------------------------------- | ---------------------- | ------------ |
+| `newPath`    | If provided, the file will be **moved** to this new path                                      | `string` (URL-encoded) | No           |
+| `size`       | Size in bytes of the content                                                                  | `number`               | Yes          |
+| `atime`      | Last access timestamp (ISO 8601)                                                              | `string`               | Yes          |
+| `mtime`      | Last content modification timestamp (ISO 8601)                                                | `string`               | Yes          |
+| `ctime`      | Last metadata modification timestamp (ISO 8601)                                               | `string`               | Yes          |
+| `crtime`     | File creation timestamp (ISO 8601)                                                            | `string`               | No           |
+| `kind`       | File type: one of "directory", "regular_file", "soft_link", "hard_link"                       | `string`               | Yes          |
+| `perm`       | File permission in octal form (e.g. `644`)                                                    | `string`               | Yes          |
+| `nlink`      | Number of hard links                                                                          | `number`               | Yes          |
+| `appendMode` | If `true` and the `content` part is present, the data will be appended instead of overwritten | `boolean`              | No           |
 
 #### Why include `size`?
 
 Although the file size can technically be determined from the uploaded binary, specifying `size` is important for **Integrity verification**: the server can confirm that the received file matches the declared size, detecting truncation or corruption.
 
-#### `Content` (part 2 — binary)
+#### `Content` (part 2 - binary)
 
-Raw file contents (binary or text).
+Raw file contents (binary).
 
-#### Field names
+#### `Field names`
 
 In the multipart/form-data request body, the field names must be:
 
-- `"metadata"` – containing the JSON object with metadata fields (newPath, size, permissions, lastModified);
+- `"metadata"` – containing the JSON object with metadata fields;
 - `"content"` – containing the raw binary data of the file.
 
 Correctly naming these fields is required for the server to correctly parse and handle the request.
@@ -95,20 +101,27 @@ Correctly naming these fields is required for the server to correctly parse and 
 
 ```json
 {
-  "lastModified": "2025-07-17T09:42:00Z",
-  "newPath": "/documents/test.txt",
-  "permissions": "rw-r--r--",
-  "size": 1024
+  "size": 1024,
+  "atime": "2025-07-30T17:00:00.000Z",
+  "mtime": "2025-07-30T17:00:00.000Z",
+  "ctime": "2025-07-30T17:00:00.000Z",
+  "crtime": "2025-07-30T15:12:30.000Z",
+  "kind": "regular_file",
+  "perm": "644",
+  "nlink": 1
 }
 ```
 
 **Part 2 – Binary content:**
-(e.g., `Some new content of the file...`)
+Raw content of the new file.
 
 ### Semantics
 
-- If the file does **not exist** at `path`, it is **created**.
-- If it **does exist**, it is **overwritten completely**, both content and metadata.
+- If the file does **not exist** at the given `path`, it is **created** with the provided content and metadata.
+- If the file already exists:
+  - If content is present and appendMode is false or absent, the file is fully overwritten (content and metadata replaced);
+  - If content is present and appendMode is true, the content is appended to the existing file, and metadata is updated accordingly;
+  - If the content part is missing, only the metadata is updated.
 - If `newPath` is provided, the file is **moved** (renamed or relocated) to that path, replacing any existing file.
 
 ### Success status
@@ -118,11 +131,10 @@ Correctly naming these fields is required for the server to correctly parse and 
 
 ### Errors
 
-- `400 Bad Request`: Metadata missing or malformed, or content missing.
-- `401 Unauthorized`: User not authenticated.
-- `403 Forbidden`: User not allowed to write or move the file.
+- `400 Bad Request`: The provided path is invalid or malformed, or metadata missing or malformed.
+- `401 Unauthorized`: User not authenticated. TODO:
 - `404 Not Found`: Source file not found.
-- `409 Conflict`: Cannot overwrite destination path (e.g., locked).
+- `409 Conflict`: Cannot overwrite destination path (e.g. locked).
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## DELETE `/files/{path}`
@@ -155,9 +167,16 @@ List the contents of a directory at the specified path.
 
 ### Response body
 
-Returns a JSON array of entry objects, each conforming to the table described here: TODO:
+Returns a JSON array of entry objects, each partially following the [metadata schema](#metadata-part-1---json). Some fields may be omitted or not applicable in this context.
+
+In particular:
+
+- The `kind` field will never be `"hard_link"`.
+- The fields `newPath` and `appendMode` will never be present in the response.
+
 If the path is a directory, the array contains all its entries; if it's a file, the array contains a single entry.
-Each object includes:
+
+Example output (fields may vary depending on the entry):
 
 ```json
 [
