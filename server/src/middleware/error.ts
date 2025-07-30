@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { StatusCodes } from "http-status-codes";
 import { UserError } from "../error/userError";
-import { FileError } from "../error/filesError";
+import { FileError } from "../error/fileError";
 
 /**
  * This should be the last middleware for all routes,
