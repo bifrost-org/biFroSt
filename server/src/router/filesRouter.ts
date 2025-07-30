@@ -1,7 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { StatusCodes } from "http-status-codes";
 import fs from "fs/promises";
-import fsSync from "fs";
 import multiparty from "multiparty";
 import path from "path";
 import { FsEntry, getNodeType } from "../model/file";
@@ -217,32 +216,26 @@ filesRouter.get(
 );
 
 // POST /mkdir/:path
-filesRouter.post("/mkdir/:path", async (req: Request, res: Response) => {
-  try {
-    const dirPath = `${USER_PATH}${req.params.path}`;
-
+filesRouter.post(
+  "/mkdir/:path?",
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
+      if (!req.params.path || req.params.path.includes(".."))
+        return next(FileError.InvalidPath());
+
+      const dirPath = `${USER_PATH}${req.params.path}`;
+
       await fs.mkdir(dirPath);
       res.status(StatusCodes.CREATED).send();
-    } catch (err: any) {
-      // TODO: make these FileError
-      if (err.code === "EEXIST") {
-        res
-          .status(StatusCodes.BAD_REQUEST)
-          .send({ error: "Directory already exists" });
-      } else if (err.code === "ENOENT") {
-        res
-          .status(StatusCodes.BAD_REQUEST)
-          .send({ error: "Parent directory does not exist" });
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT")
+        next(FileError.NotFound("Parent directory does not exist"));
+      else if (code === "EEXIST") {
+        next(FileError.DirectoryAlreadyExists());
       } else {
-        res
-          .status(StatusCodes.INTERNAL_SERVER_ERROR)
-          .send({ error: "Internal server error", description: err.message });
+        next(e);
       }
     }
-  } catch {
-    res
-      .status(StatusCodes.BAD_REQUEST)
-      .send({ error: "Invalid or unsafe path" });
   }
-});
+);
