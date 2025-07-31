@@ -54,8 +54,7 @@ Create or replace the file at the specified path with the given content and meta
 
 ### Path parameters
 
-- `path`: The **current** full path of the file.
-  If `newPath` is provided in the request body, the file will be moved to that new path.
+- `path`: The **current** full path of the file. FIXME:
 
 ### Request body (multipart JSON + binary)
 
@@ -63,20 +62,21 @@ This request uses `multipart/form-data` with:
 
 #### `Metadata` (part 1 - JSON)
 
-Full description of the file’s metadata and optional new path:
+Full description of the file’s metadata and optional new path, and writing mode:
 
-| **Field**    | **Description**                                                                               | **Type**               | **Required** |
-| ------------ | --------------------------------------------------------------------------------------------- | ---------------------- | ------------ |
-| `newPath`    | If provided, the file will be **moved** to this new path                                      | `string` (URL-encoded) | No           |
-| `size`       | Size in bytes of the content                                                                  | `number`               | Yes          |
-| `atime`      | Last access timestamp (ISO 8601)                                                              | `string`               | Yes          |
-| `mtime`      | Last content modification timestamp (ISO 8601)                                                | `string`               | Yes          |
-| `ctime`      | Last metadata modification timestamp (ISO 8601)                                               | `string`               | Yes          |
-| `crtime`     | File creation timestamp (ISO 8601)                                                            | `string`               | No           |
-| `kind`       | File type: one of "directory", "regular_file", "soft_link", "hard_link"                       | `string`               | Yes          |
-| `perm`       | File permission in octal form (e.g. `644`)                                                    | `string`               | Yes          |
-| `nlink`      | Number of hard links                                                                          | `number`               | Yes          |
-| `appendMode` | If `true` and the `content` part is present, the data will be appended instead of overwritten | `boolean`              | No           |
+| **Field** | **Description**                                                                                                                                                                                                                 | **Type**               | **Required** |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ------------ |
+| `newPath` | If provided, the file will be **moved** to this new path                                                                                                                                                                        | `string` (URL-encoded) | No           |
+| `size`    | Meaning depends on `mode`:<br>- In `"write"`, `"append"`, and `"write_at"`, it represents the size in bytes of the provided content.<br>- In `"truncate"`, it defines the final size of the file after truncation or expansion. | `number`               | Yes          |
+| `atime`   | Last access timestamp (ISO 8601)                                                                                                                                                                                                | `string`               | Yes          |
+| `mtime`   | Last content modification timestamp (ISO 8601)                                                                                                                                                                                  | `string`               | Yes          |
+| `ctime`   | Last metadata modification timestamp (ISO 8601)                                                                                                                                                                                 | `string`               | Yes          |
+| `crtime`  | File creation timestamp (ISO 8601)                                                                                                                                                                                              | `string`               | No           |
+| `kind`    | File type: one of "regular_file", "soft_link", "hard_link"                                                                                                                                                                      | `string`               | Yes          |
+| `refPath` | Required if `kind` is `"soft_link"` or `"hard_link"`; points to the target file                                                                                                                                                 | `string`               | Conditional  |
+| `perm`    | File permission in octal form (e.g. `644`)                                                                                                                                                                                      | `string`               | Yes          |
+| `mode`    | Writing mode: one of `"write"`, `"append"`, `"write_at"`, or `"truncate"`                                                                                                                                                       | `string`               | Yes          |
+| `offset`  | Offset in bytes at which to start writing (required if `mode` is `"write_at"`)                                                                                                                                                  | `number`               | Conditional  |
 
 #### Why include `size`?
 
@@ -108,7 +108,7 @@ Correctly naming these fields is required for the server to correctly parse and 
   "crtime": "2025-07-30T15:12:30.000Z",
   "kind": "regular_file",
   "perm": "644",
-  "nlink": 1
+  "mode": "write"
 }
 ```
 
@@ -117,12 +117,36 @@ Raw content of the new file.
 
 ### Semantics
 
-- If the file does **not exist** at the given `path`, it is **created** with the provided content and metadata.
-- If the file already exists:
-  - If content is present and appendMode is false or absent, the file is fully overwritten (content and metadata replaced);
-  - If content is present and appendMode is true, the content is appended to the existing file, and metadata is updated accordingly;
-  - If the content part is missing, only the metadata is updated.
-- If `newPath` is provided, the file is **moved** (renamed or relocated) to that path, replacing any existing file.
+The behavior of this endpoint depends on the `mode` specified in the metadata:
+
+- **`"write"`**:
+
+  - If the file does **not exist** at the given `path`, it is **created** with the provided content and metadata.
+  - If the file **already exists**, its content and metadata are **fully overwritten**.
+    <br>If the `content` part is missing, only the metadata is updated.
+
+- **`"append"`**:
+
+  - If the file exists, the provided binary content is **appended** to the end.
+  - If the file does not exist, it is **created**, and the content is written normally.
+    Metadata is updated accordingly.
+
+- **`"write_at"`**:
+  The binary content is written starting at the specified byte `offset`, required in this mode.
+
+  - If the file is shorter than the offset, it is **expanded** with null bytes (`\0`) to reach the offset.
+  - Existing bytes from the offset onward are **overwritten**.
+
+- **`"truncate"`**:
+  The file is **resized** to the specified `size`. In this mode, the `content` field is ignored.
+
+  - If the current file is longer, it is **truncated**.
+  - If shorter, it is **expanded** with null bytes (`\0`).
+
+Additionally:
+
+- If `newPath` is provided, the file is **moved** (renamed or relocated) to that path, replacing any existing file at the destination.
+- If `kind` is `"soft_link"` or `"hard_link"`, the field `refPath` must be provided and no content is required.
 
 ### Success status
 
@@ -131,10 +155,13 @@ Raw content of the new file.
 
 ### Errors
 
-- `400 Bad Request`: The provided path is invalid or malformed, or metadata missing or malformed.
+- `400 Bad Request`:
+  - The provided `path` is invalid or malformed;
+  - The metadata are missing or malformed;
+  - `kind` is `"soft_link"` or `"hard_link"` but `refPath` is missing
+  - Required fields are missing depending on the selected `mode`.
 - `401 Unauthorized`: User not authenticated. TODO:
-- `404 Not Found`: Source file not found.
-- `409 Conflict`: Cannot overwrite destination path (e.g. locked).
+- `404 Not Found`: The file at `path` does not exist and a `newPath` was specified (cannot move non-existent file).
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## DELETE `/files/{path}`
@@ -172,7 +199,7 @@ Returns a JSON array of entry objects, each partially following the [metadata sc
 In particular:
 
 - The `kind` field will never be `"hard_link"`.
-- The fields `newPath` and `appendMode` will never be present in the response.
+- The fields `newPath`, `mode` and `offset` will never be present in the response.
 
 If the path is a directory, the array contains all its entries; if it's a file, the array contains a single entry.
 
