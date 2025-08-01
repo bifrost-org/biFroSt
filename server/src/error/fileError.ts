@@ -24,7 +24,17 @@ export class FileError extends Error {
     return new FileError(message, StatusCodes.BAD_REQUEST);
   }
 
-  static NotFound(message = "No such file or directory") {
+  static NotFound(message = "The specified file or directory does not exist") {
     return new FileError(message, StatusCodes.NOT_FOUND);
+  }
+
+  static ParentDirectoryNotFound(message = "Parent directory does not exist") {
+    return new FileError(message, StatusCodes.NOT_FOUND);
+  }
+
+  static SizeMismatch(
+    message = "Size mismatch: integrity verification failed"
+  ) {
+    return new FileError(message, StatusCodes.BAD_REQUEST);
   }
 }

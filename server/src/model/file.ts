@@ -20,6 +20,13 @@ export enum FileType {
   HardLink = "hard_link",
 }
 
+export enum Mode {
+  Write = "write",
+  Append = "append",
+  WriteAt = "write_at",
+  Truncate = "truncate",
+}
+
 export function getNodeType(entry: Dirent): FileType {
   if (entry.isSymbolicLink()) return FileType.SymLink;
   if (entry.isDirectory()) return FileType.Directory;
