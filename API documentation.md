@@ -158,10 +158,14 @@ Additionally:
 - `400 Bad Request`:
   - The provided `path` is invalid or malformed;
   - The metadata are missing or malformed;
+  - Integrity verification failed: the declared size does not match the actual content length;
   - `kind` is `"soft_link"` or `"hard_link"` but `refPath` is missing
   - Required fields are missing depending on the selected `mode`.
 - `401 Unauthorized`: User not authenticated. TODO:
 - `404 Not Found`: The file at `path` does not exist and a `newPath` was specified (cannot move non-existent file).
+- `409 Conflict`:
+  - Parent directory does not exist;
+  - File already exists.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## DELETE `/files/{path}`

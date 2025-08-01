@@ -20,6 +20,12 @@ export class FileError extends Error {
     return new FileError(message, StatusCodes.CONFLICT);
   }
 
+  static FileAlreadyExists(
+    message = "The file at the provided path already exists"
+  ) {
+    return new FileError(message, StatusCodes.CONFLICT);
+  }
+
   static InvalidPath(message = "The provided path is invalid or malformed") {
     return new FileError(message, StatusCodes.BAD_REQUEST);
   }
@@ -29,7 +35,7 @@ export class FileError extends Error {
   }
 
   static ParentDirectoryNotFound(message = "Parent directory does not exist") {
-    return new FileError(message, StatusCodes.NOT_FOUND);
+    return new FileError(message, StatusCodes.CONFLICT);
   }
 
   static SizeMismatch(
