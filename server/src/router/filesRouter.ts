@@ -55,7 +55,7 @@ filesRouter.put(
           metadata.kind === FileType.HardLink) &&
         metadata.refPath
       ) {
-        const linkTarget = `${USER_PATH}${metadata.refPath}`;
+        const linkTarget = `${process.env.HOST_PATH ?? process.env.USER_PATH}${metadata.refPath}`;
         if (metadata.kind === FileType.SymLink) {
           await fs.symlink(linkTarget, finalPath);
         } else {
@@ -108,8 +108,12 @@ filesRouter.put(
         // this section cannot be accessed because zod intercept the error
       }
 
-      fs.chmod(finalPath, parseInt(metadata.perm, 8));
-      fs.utimes(finalPath, new Date(metadata.atime), new Date(metadata.mtime));
+      await fs.chmod(finalPath, parseInt(metadata.perm, 8));
+      await fs.utimes(
+        finalPath,
+        new Date(metadata.atime),
+        new Date(metadata.mtime)
+      );
       // NOTE: ctime and crtime are not manually settable. They are controlled by the file system
 
       // Delete old path if moved
@@ -124,6 +128,8 @@ filesRouter.put(
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
         next(FileError.ParentDirectoryNotFound());
+      } else if (code === "EEXIST") {
+        next(FileError.FileAlreadyExists());
       } else {
         next(e);
       }
