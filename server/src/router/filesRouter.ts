@@ -1,10 +1,11 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { StatusCodes } from "http-status-codes";
 import fs from "fs/promises";
-import multiparty from "multiparty";
 import path from "path";
-import { FileAttr, getNodeType } from "../model/file";
+import { FileAttr, FileType, getNodeType, Mode } from "../model/file";
 import { FileError } from "../error/fileError";
+import { validateMultipartMetadata } from "../middleware/validation";
+import { MetadataPut } from "../validation/metadataSchema";
 
 export const filesRouter: Router = Router();
 
@@ -33,97 +34,102 @@ filesRouter.get(
 );
 
 // PUT /files/:path
-filesRouter.put("/files/:path", async (req: Request, res: Response) => {
-  const currentPath = req.params.path;
+filesRouter.put(
+  "/files/:path",
+  validateMultipartMetadata,
+  async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.params.path || req.params.path.includes(".."))
+      return next(FileError.InvalidPath());
 
-  try {
-    const form = new multiparty.Form();
-    form.parse(req, async (err, fields, files) => {
-      if (err || !fields || !files || !files.content) {
-        res
-          .status(StatusCodes.BAD_REQUEST)
-          .send({ error: "Invalid multipart data" });
-        return;
-      }
+    const currentPath = req.params.path;
+    const { metadata, content } = req.body as {
+      metadata: MetadataPut;
+      content?: { path: string };
+    };
 
-      let metadata;
-      try {
-        metadata = JSON.parse(fields.metadata?.[0] || "{}");
-      } catch {
-        res
-          .status(StatusCodes.BAD_REQUEST)
-          .send({ error: "Malformed metadata JSON" });
-        return;
-      }
+    const finalPath = `${USER_PATH}${metadata.newPath || currentPath}`;
 
-      const { newPath, size, permissions, lastModified } = metadata;
-      if (!size || !permissions || !lastModified) {
-        // TODO: make this a FileError
-        res
-          .status(StatusCodes.BAD_REQUEST)
-          .send({ error: "Missing required metadata fields" });
-        return;
-      }
-
-      const finalPath = `${USER_PATH}${newPath || currentPath}`;
-
-      const contentFile = files.content[0];
-      console.log(contentFile.path);
-      const fileBuffer = await fs.readFile(contentFile.path);
-
-      // Verify integrity
-      if (fileBuffer.length !== size) {
-        res
-          .status(StatusCodes.BAD_REQUEST) // TODO: make this a FileError
-          .send({ error: "Size mismatch: integrity verification failed" });
-        return;
-      }
-
-      await fs.mkdir(path.dirname(finalPath), { recursive: true });
-
-      let fileAlreadyExists = false;
-      try {
-        await fs.access(finalPath);
-        fileAlreadyExists = true;
-      } catch {
-        /* empty */
-      }
-
-      await fs.writeFile(finalPath, fileBuffer);
-
-      // Attempt to set last modified timestamp // TODO: this should work when there are sync problems
-      /*
-      try {
-        await fs.utimes(finalPath, new Date(), new Date(modified));
-      } catch {
-        // best-effort only
-      }
-        */
-
-      // Handle move: remove original if path differs
-      if (newPath && newPath !== currentPath) {
-        const oldPath = `${USER_PATH}${currentPath}`;
-        if (oldPath !== finalPath) {
-          try {
-            await fs.rm(oldPath);
-          } catch {
-            // file may already have been overwritten
-          }
+    try {
+      if (
+        (metadata.kind === FileType.SymLink ||
+          metadata.kind === FileType.HardLink) &&
+        metadata.refPath
+      ) {
+        const linkTarget = `${USER_PATH}${metadata.refPath}`;
+        if (metadata.kind === FileType.SymLink) {
+          await fs.symlink(linkTarget, finalPath);
+        } else {
+          await fs.link(linkTarget, finalPath);
         }
-        res.status(StatusCodes.NO_CONTENT).send(); // If the file was moved to a new path or its content was updated
-      } else {
-        const status = fileAlreadyExists
-          ? StatusCodes.NO_CONTENT
-          : StatusCodes.CREATED;
-        res.status(status).send();
+        return res.status(StatusCodes.CREATED).send();
       }
-    });
-  } catch (error) {
-    res
-      .status(StatusCodes.INTERNAL_SERVER_ERROR) // TODO: Make this a FileError
-      .send({ error: "Unable to write file", description: error });
+
+      let contentBuffer: Buffer | undefined = undefined;
+      if (content?.path && metadata.mode !== Mode.Truncate) {
+        contentBuffer = await fs.readFile(content.path);
+
+        if (contentBuffer.length !== metadata.size) {
+          return next(FileError.SizeMismatch());
+        }
+      }
+
+      const fileExists: boolean = await fs
+        .access(finalPath)
+        .then(() => true)
+        .catch(() => false);
+
+      switch (metadata.mode) {
+        case Mode.Write:
+          if (contentBuffer !== undefined) {
+            await fs.writeFile(finalPath, contentBuffer);
+          }
+          break;
+
+        case Mode.Append:
+          await fs.appendFile(finalPath, contentBuffer ?? Buffer.alloc(0));
+          break;
+
+        case Mode.WriteAt: {
+          const fd = await fs.open(finalPath, fileExists ? "r+" : "w+");
+          try {
+            const buffer = contentBuffer ?? Buffer.alloc(0);
+            await fd.write(buffer, 0, buffer.length, metadata.offset);
+          } finally {
+            await fd.close();
+          }
+          break;
+        }
+
+        case Mode.Truncate:
+          await fs.truncate(finalPath, metadata.size);
+          break;
+
+        default:
+        // this section cannot be accessed because zod intercept the error
+      }
+
+      fs.chmod(finalPath, parseInt(metadata.perm, 8));
+      fs.utimes(finalPath, new Date(metadata.atime), new Date(metadata.mtime));
+      // NOTE: ctime and crtime are not manually settable. They are controlled by the file system
+
+      // Delete old path if moved
+      if (metadata.newPath && metadata.newPath !== currentPath) {
+        const oldPath = `${USER_PATH}${currentPath}`;
+        await fs.rm(oldPath).catch(() => {});
+      }
+
+      const status = fileExists ? StatusCodes.NO_CONTENT : StatusCodes.CREATED;
+      res.status(status).send();
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        next(FileError.ParentDirectoryNotFound());
+      } else {
+        next(e);
+      }
+    }
   }
-});
+);
 
 // DELETE /files/:path
 filesRouter.delete(
@@ -237,9 +243,9 @@ filesRouter.post(
       res.status(StatusCodes.CREATED).send();
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
-      if (code === "ENOENT")
-        next(FileError.NotFound("Parent directory does not exist"));
-      else if (code === "EEXIST") {
+      if (code === "ENOENT") {
+        next(FileError.ParentDirectoryNotFound());
+      } else if (code === "EEXIST") {
         next(FileError.DirectoryAlreadyExists());
       } else {
         next(e);
