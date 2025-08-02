@@ -11,6 +11,10 @@ export const filesRouter: Router = Router();
 
 const USER_PATH = process.env.USER_PATH;
 
+function getPath(a: string | undefined, b: string): string {
+  return path.join("/", a!, b);
+}
+
 // GET /files/:path
 filesRouter.get(
   "/files/:path?",
@@ -19,7 +23,7 @@ filesRouter.get(
       if (!req.params.path || req.params.path.includes(".."))
         return next(FileError.InvalidPath());
 
-      const filePath = `${USER_PATH}${req.params.path}`;
+      const filePath = getPath(USER_PATH, req.params.path);
       const fileContent = await fs.readFile(filePath);
       res.status(StatusCodes.OK).send(fileContent);
     } catch (e) {
@@ -47,7 +51,7 @@ filesRouter.put(
       content?: { path: string };
     };
 
-    const finalPath = `${USER_PATH}${metadata.newPath || currentPath}`;
+    const finalPath = getPath(USER_PATH, metadata.newPath || currentPath);
 
     try {
       if (
@@ -55,10 +59,15 @@ filesRouter.put(
           metadata.kind === FileType.HardLink) &&
         metadata.refPath
       ) {
-        const linkTarget = `${process.env.HOST_PATH ?? process.env.USER_PATH}${metadata.refPath}`;
+        let linkTarget;
         if (metadata.kind === FileType.SymLink) {
+          linkTarget = getPath(
+            process.env.HOST_PATH ?? process.env.USER_PATH,
+            metadata.refPath
+          );
           await fs.symlink(linkTarget, finalPath);
         } else {
+          linkTarget = getPath(process.env.USER_PATH, metadata.refPath);
           await fs.link(linkTarget, finalPath);
         }
         return res.status(StatusCodes.CREATED).send();
@@ -118,7 +127,7 @@ filesRouter.put(
 
       // Delete old path if moved
       if (metadata.newPath && metadata.newPath !== currentPath) {
-        const oldPath = `${USER_PATH}${currentPath}`;
+        const oldPath = getPath(USER_PATH, currentPath);
         await fs.rm(oldPath).catch(() => {});
       }
 
@@ -145,7 +154,7 @@ filesRouter.delete(
       if (!req.params.path || req.params.path.includes(".."))
         return next(FileError.InvalidPath());
 
-      const filePath = `${USER_PATH}${req.params.path}`;
+      const filePath = getPath(USER_PATH, req.params.path);
       const stat = await fs.stat(filePath);
 
       if (stat.isDirectory()) {
@@ -176,7 +185,7 @@ filesRouter.get(
       if (req.params.path && req.params.path.includes(".."))
         return next(FileError.InvalidPath());
 
-      const entryPath = `${USER_PATH}${req.params.path ?? ""}`;
+      const entryPath = getPath(USER_PATH, req.params.path ?? "");
 
       const stats = await fs.stat(entryPath);
 
@@ -207,7 +216,7 @@ filesRouter.get(
 
       const result = await Promise.all(
         entries.map(async (entry) => {
-          const entryPath = path.join(dirPath, entry.name);
+          const entryPath = getPath(dirPath, entry.name);
           const stats = await fs.stat(entryPath);
           return {
             name: entry.name,
@@ -227,6 +236,7 @@ filesRouter.get(
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
+        console.log(e);
         next(FileError.NotFound());
       } else {
         next(e);
@@ -243,7 +253,7 @@ filesRouter.post(
       if (!req.params.path || req.params.path.includes(".."))
         return next(FileError.InvalidPath());
 
-      const dirPath = `${USER_PATH}${req.params.path}`;
+      const dirPath = getPath(USER_PATH, req.params.path);
 
       await fs.mkdir(dirPath);
       res.status(StatusCodes.CREATED).send();
