@@ -65,3 +65,18 @@ export const validateMultipartMetadata = (
     next();
   });
 };
+
+import { FileError } from "../error/fileError";
+
+export function validatePathParameter(allowEmpty = false) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const path = req.params.path;
+    if (
+      (!path && !allowEmpty) || // error if path not present but empty path not allowed
+      (path && path.includes("..")) // error if path present but path includes the string ".."
+    ) {
+      return next(FileError.InvalidPath());
+    }
+    next();
+  };
+}

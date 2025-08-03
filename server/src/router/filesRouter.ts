@@ -4,7 +4,10 @@ import fs from "fs/promises";
 import path from "path";
 import { FileAttr, FileType, getNodeType, Mode } from "../model/file";
 import { FileError } from "../error/fileError";
-import { validateMultipartMetadata } from "../middleware/validation";
+import {
+  validateMultipartMetadata,
+  validatePathParameter,
+} from "../middleware/validation";
 import { MetadataPut } from "../validation/metadataSchema";
 
 export const filesRouter: Router = Router();
@@ -12,17 +15,15 @@ export const filesRouter: Router = Router();
 const USER_PATH = process.env.USERS_PATH;
 
 function getPath(a: string | undefined, b: string): string {
-  return path.join("/", a!, b);
+  return path.join(a!, b);
 }
 
 // GET /files/:path
 filesRouter.get(
   "/files/:path?",
+  validatePathParameter(false),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!req.params.path || req.params.path.includes(".."))
-        return next(FileError.InvalidPath());
-
       const filePath = getPath(USER_PATH, req.params.path);
       const fileContent = await fs.readFile(filePath);
       res.status(StatusCodes.OK).send(fileContent);
@@ -39,12 +40,10 @@ filesRouter.get(
 
 // PUT /files/:path
 filesRouter.put(
-  "/files/:path",
+  "/files/:path?",
+  validatePathParameter(false),
   validateMultipartMetadata,
   async (req: Request, res: Response, next: NextFunction) => {
-    if (!req.params.path || req.params.path.includes(".."))
-      return next(FileError.InvalidPath());
-
     const currentPath = req.params.path;
     const { metadata, content } = req.body as {
       metadata: MetadataPut;
@@ -84,9 +83,7 @@ filesRouter.put(
 
       switch (metadata.mode) {
         case Mode.Write:
-          if (contentBuffer !== undefined) {
-            await fs.writeFile(finalPath, contentBuffer);
-          }
+          await fs.writeFile(finalPath, contentBuffer ?? Buffer.alloc(0));
           break;
 
         case Mode.Append:
@@ -145,11 +142,9 @@ filesRouter.put(
 // DELETE /files/:path
 filesRouter.delete(
   "/files/:path?",
+  validatePathParameter(false),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!req.params.path || req.params.path.includes(".."))
-        return next(FileError.InvalidPath());
-
       const filePath = getPath(USER_PATH, req.params.path);
       const stat = await fs.stat(filePath);
 
@@ -176,11 +171,9 @@ filesRouter.delete(
 // GET /list/:path
 filesRouter.get(
   "/list/:path?",
+  validatePathParameter(true),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (req.params.path && req.params.path.includes(".."))
-        return next(FileError.InvalidPath());
-
       const entryPath = getPath(USER_PATH, req.params.path ?? "");
 
       const stats = await fs.stat(entryPath);
@@ -232,7 +225,6 @@ filesRouter.get(
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
-        console.log(e);
         next(FileError.NotFound());
       } else {
         next(e);
@@ -244,11 +236,9 @@ filesRouter.get(
 // POST /mkdir/:path
 filesRouter.post(
   "/mkdir/:path?",
+  validatePathParameter(false),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if (!req.params.path || req.params.path.includes(".."))
-        return next(FileError.InvalidPath());
-
       const dirPath = getPath(USER_PATH, req.params.path);
 
       await fs.mkdir(dirPath);
