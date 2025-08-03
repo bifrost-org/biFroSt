@@ -9,7 +9,7 @@ import { MetadataPut } from "../validation/metadataSchema";
 
 export const filesRouter: Router = Router();
 
-const USER_PATH = process.env.USER_PATH;
+const USER_PATH = process.env.USERS_PATH;
 
 function getPath(a: string | undefined, b: string): string {
   return path.join("/", a!, b);
@@ -59,15 +59,10 @@ filesRouter.put(
           metadata.kind === FileType.HardLink) &&
         metadata.refPath
       ) {
-        let linkTarget;
+        const linkTarget = getPath(process.env.USER_PATH, metadata.refPath);
         if (metadata.kind === FileType.SymLink) {
-          linkTarget = getPath(
-            process.env.HOST_PATH ?? process.env.USER_PATH,
-            metadata.refPath
-          );
           await fs.symlink(linkTarget, finalPath);
         } else {
-          linkTarget = getPath(process.env.USER_PATH, metadata.refPath);
           await fs.link(linkTarget, finalPath);
         }
         return res.status(StatusCodes.CREATED).send();
@@ -136,6 +131,7 @@ filesRouter.put(
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
+        console.log(e);
         next(FileError.ParentDirectoryNotFound());
       } else if (code === "EEXIST") {
         next(FileError.FileAlreadyExists());
