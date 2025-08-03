@@ -59,7 +59,7 @@ filesRouter.put(
           metadata.kind === FileType.HardLink) &&
         metadata.refPath
       ) {
-        const linkTarget = getPath(process.env.USER_PATH, metadata.refPath);
+        const linkTarget = getPath(USER_PATH, metadata.refPath);
         if (metadata.kind === FileType.SymLink) {
           await fs.symlink(linkTarget, finalPath);
         } else {
