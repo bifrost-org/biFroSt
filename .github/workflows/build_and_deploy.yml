@@ -22,18 +22,26 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            set -e
-            cd ${{ secrets.DEPLOY_DIRECTORY }}
-            echo "Pulling latest changes..."
+            echo "::group::Pulling latest changes"
             git pull origin main
-            cd server
-            echo "Removing dist folder..."
+            echo "::endgroup::"
+
+            echo "::group::Removing dist folder"
             rm -rf dist
-            echo "Installing dependencies..."
+            echo "::endgroup::"
+
+            echo "::group::Installing dependencies"
             npm install
-            echo "Building project..."
+            echo "::endgroup::"
+
+            echo "::group::Building project"
             npm run build
-            echo "Copying .env file..."
+            echo "::endgroup::"
+
+            echo "::group::Copying .env file"
             cp .env dist/
-            echo "Restarting bifrost.service..."
+            echo "::endgroup::"
+
+            echo "::group::Restarting bifrost.service"
             sudo systemctl restart bifrost.service
+            echo "::endgroup::"
