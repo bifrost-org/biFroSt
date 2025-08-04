@@ -54,7 +54,7 @@ Create or replace the file at the specified path with the given content and meta
 
 ### Path parameters
 
-- `path`: The **current** full path of the file. FIXME:
+- `path`: The **current** full path of the file. This path is used to identify the file to create or update, and must be **percent-encoded**. If `newPath` is provided in the metadata, the file will be moved after writing.
 
 ### Request body (multipart JSON + binary)
 
@@ -159,13 +159,15 @@ Additionally:
   - The provided `path` is invalid or malformed;
   - The metadata are missing or malformed;
   - Integrity verification failed: the declared size does not match the actual content length;
-  - `kind` is `"soft_link"` or `"hard_link"` but `refPath` is missing
-  - Required fields are missing depending on the selected `mode`.
+  - `kind` is `"soft_link"` or `"hard_link"` but `refPath` is missing;
+  - Required fields are missing depending on the selected `mode`;
+  - `kind` is `"hard_link"` but `refPath` points to a resource that is not a directory, although it is specified as one.
 - `401 Unauthorized`: User not authenticated. TODO:
-- `404 Not Found`: The file at `path` does not exist and a `newPath` was specified (cannot move non-existent file).
-- `409 Conflict`:
-  - Parent directory does not exist;
-  - File already exists.
+- `404 Not Found`:
+  - `kind` is `"hard_link"` but the target file at `refPath` does not exist;
+  - `mode` is `"truncate"` but the file at `path` does not exist;
+  - The file at `path` does not exist and a `newPath` was specified (cannot move non-existent file).
+- `409 Conflict`: File already exists.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## DELETE `/files/{path}`
