@@ -50,9 +50,23 @@ filesRouter.put(
       content?: { path: string };
     };
 
-    const finalPath = getPath(USER_PATH, metadata.newPath || currentPath);
+    const finalPath = getPath(USER_PATH, currentPath);
 
     try {
+      if (metadata.newPath && metadata.newPath !== currentPath) {
+        const oldPath = finalPath;
+        const newPath = getPath(USER_PATH, metadata.newPath);
+
+        await fs.rename(oldPath, newPath);
+        await fs.chmod(newPath, parseInt(metadata.perm, 8));
+        await fs.utimes(
+          newPath,
+          new Date(metadata.atime),
+          new Date(metadata.mtime)
+        );
+        return res.status(StatusCodes.NO_CONTENT).send();
+      }
+
       if (
         (metadata.kind === FileType.SymLink ||
           metadata.kind === FileType.HardLink) &&
@@ -119,12 +133,6 @@ filesRouter.put(
       );
       // NOTE: ctime and crtime are not manually settable. They are controlled by the file system
 
-      // Delete old path if moved
-      if (metadata.newPath && metadata.newPath !== currentPath) {
-        const oldPath = getPath(USER_PATH, currentPath);
-        await fs.rm(oldPath).catch(() => {});
-      }
-
       const status = fileExists ? StatusCodes.NO_CONTENT : StatusCodes.CREATED;
       res.status(status).send();
     } catch (e) {
@@ -135,6 +143,12 @@ filesRouter.put(
         next(FileError.NotADirectory());
       } else if (code === "EEXIST") {
         next(FileError.FileAlreadyExists());
+      } else if (code === "EPERM") {
+        next(
+          FileError.OperationNotPermitted(
+            "Creating hard links to directories is not allowed"
+          )
+        );
       } else {
         next(e);
       }

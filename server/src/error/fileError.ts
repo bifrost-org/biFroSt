@@ -38,6 +38,10 @@ export class FileError extends Error {
     return new FileError(message, StatusCodes.NOT_FOUND);
   }
 
+  static OperationNotPermitted(message = "") {
+    return new FileError(message, StatusCodes.FORBIDDEN);
+  }
+
   static ParentDirectoryNotFound(message = "Parent directory does not exist") {
     return new FileError(message, StatusCodes.CONFLICT);
   }

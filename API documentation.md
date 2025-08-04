@@ -163,6 +163,7 @@ Additionally:
   - Required fields are missing depending on the selected `mode`;
   - `kind` is `"hard_link"` but `refPath` points to a resource that is not a directory, although it is specified as one.
 - `401 Unauthorized`: User not authenticated. TODO:
+- `403 Forbidden`: Attempt to create a hard link to a directory, which is not permitted by the file system.
 - `404 Not Found`:
   - `kind` is `"hard_link"` but the target file at `refPath` does not exist;
   - `mode` is `"truncate"` but the file at `path` does not exist;
