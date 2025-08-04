@@ -1,6 +1,5 @@
 import { NextFunction, Request, Response } from "express";
 import { StatusCodes } from "http-status-codes";
-import { UserError } from "../error/userError";
 import { FileError } from "../error/fileError";
 
 /**
@@ -18,7 +17,7 @@ export function sinkErrorHandler(
     return;
   }
 
-  if (error instanceof UserError || error instanceof FileError) {
+  if (error instanceof FileError) {
     response.status(error.statusCode).json({ message: error.message });
   } else {
     const message =
