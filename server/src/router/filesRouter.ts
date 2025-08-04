@@ -60,6 +60,7 @@ filesRouter.put(
       ) {
         const linkTarget = getPath(USER_PATH, metadata.refPath);
         if (metadata.kind === FileType.SymLink) {
+          // it is possible to create a dangling soft link
           await fs.symlink(linkTarget, finalPath);
         } else {
           await fs.link(linkTarget, finalPath);
@@ -102,6 +103,7 @@ filesRouter.put(
         }
 
         case Mode.Truncate:
+          if (!fileExists) return next(FileError.NotFound());
           await fs.truncate(finalPath, metadata.size);
           break;
 
@@ -128,8 +130,9 @@ filesRouter.put(
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
-        console.log(e);
-        next(FileError.ParentDirectoryNotFound());
+        next(FileError.NotFound());
+      } else if (code === "ENOTDIR") {
+        next(FileError.NotADirectory());
       } else if (code === "EEXIST") {
         next(FileError.FileAlreadyExists());
       } else {

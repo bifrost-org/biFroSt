@@ -30,6 +30,10 @@ export class FileError extends Error {
     return new FileError(message, StatusCodes.BAD_REQUEST);
   }
 
+  static NotADirectory(message = "Expected a directory, but found a file") {
+    return new FileError(message, StatusCodes.BAD_REQUEST);
+  }
+
   static NotFound(message = "The specified file or directory does not exist") {
     return new FileError(message, StatusCodes.NOT_FOUND);
   }
