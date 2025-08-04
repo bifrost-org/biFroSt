@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "server/**"
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
@@ -22,9 +23,14 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e
+            cd ${{ secrets.DEPLOY_DIRECTORY }}
+
             echo "::group::Pulling latest changes"
             git pull origin main
             echo "::endgroup::"
+
+            cd server
 
             echo "::group::Removing dist folder"
             rm -rf dist
