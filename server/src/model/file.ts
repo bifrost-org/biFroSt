@@ -9,6 +9,7 @@ export type FileAttr = {
   ctime: string;
   crtime: string;
   kind: FileType;
+  refPath?: string;
   perm: string;
   nlink: number;
 };
