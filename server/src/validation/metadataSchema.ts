@@ -3,31 +3,27 @@ import { FileType, Mode } from "../model/file";
 
 const filePathPattern = /^\/?([a-zA-Z0-9_\-.]+\/)*[a-zA-Z0-9_\-.]+$/;
 
-const baseMetadataSchema = z
-  .object({
-    newPath: z
-      .string()
-      .regex(filePathPattern, {
-        message: "newPath must be a valid path like /folder/file.txt",
-      })
-      .optional(),
+const baseMetadataSchema = z.object({
+  newPath: z
+    .string()
+    .regex(filePathPattern, {
+      message: "newPath must be a valid path like /folder/file.txt",
+    })
+    .optional(),
 
-    size: z.number().int().nonnegative(),
+  size: z.number().int().nonnegative(),
 
-    atime: z.string().datetime(),
-    mtime: z.string().datetime(),
-    ctime: z.string().datetime(),
-    crtime: z.string().datetime().optional(),
+  atime: z.string().datetime(),
+  mtime: z.string().datetime(),
 
-    kind: z.nativeEnum(FileType),
-    refPath: z.string().optional(),
+  kind: z.nativeEnum(FileType),
+  refPath: z.string().optional(),
 
-    perm: z.string().regex(/^[0-7]{3}$/),
+  perm: z.string().regex(/^[0-7]{3}$/),
 
-    mode: z.nativeEnum(Mode),
-    offset: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+  mode: z.nativeEnum(Mode),
+  offset: z.number().int().nonnegative().optional(),
+});
 
 export const metadataSchema = baseMetadataSchema.superRefine(
   (metadata, ctx) => {

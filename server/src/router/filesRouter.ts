@@ -12,7 +12,7 @@ import { MetadataPut } from "../validation/metadataSchema";
 
 export const filesRouter: Router = Router();
 
-const USER_PATH = process.env.USERS_PATH;
+const USER_PATH = path.resolve(process.env.USERS_PATH!);
 
 function getPath(a: string | undefined, b: string): string {
   return path.join(a!, b);
@@ -98,14 +98,17 @@ filesRouter.put(
 
       switch (metadata.mode) {
         case Mode.Write:
+          if (!contentBuffer && fileExists) break;
           await fs.writeFile(finalPath, contentBuffer ?? Buffer.alloc(0));
           break;
 
         case Mode.Append:
+          if (!contentBuffer && fileExists) break;
           await fs.appendFile(finalPath, contentBuffer ?? Buffer.alloc(0));
           break;
 
         case Mode.WriteAt: {
+          if (!contentBuffer && !fileExists) break;
           const fd = await fs.open(finalPath, fileExists ? "r+" : "w+");
           try {
             const buffer = contentBuffer ?? Buffer.alloc(0);
@@ -224,17 +227,39 @@ filesRouter.get(
         entries.map(async (entry) => {
           const entryPath = getPath(dirPath, entry.name);
           const stats = await fs.stat(entryPath);
-          return {
+
+          const kind = getNodeType(entry);
+          let refPath;
+          if (kind === FileType.SymLink) {
+            try {
+              const refPathAbs = await fs.readlink(entryPath);
+
+              if (refPathAbs === USER_PATH) {
+                refPath = "/";
+              } else if (refPathAbs.startsWith(USER_PATH)) {
+                refPath = refPathAbs.slice(USER_PATH.length);
+              } else {
+                refPath = refPathAbs; // outside the namespace
+              }
+            } catch {
+              refPath = undefined; // broken link
+            }
+          }
+
+          const fsEntry: FileAttr = {
             name: entry.name,
             size: stats.size,
             atime: stats.atime.toISOString(),
             mtime: stats.mtime.toISOString(),
             ctime: stats.ctime.toISOString(),
             crtime: stats.birthtime.toISOString(),
-            kind: getNodeType(entry),
+            kind,
+            refPath,
             perm: (stats.mode & 0o777).toString(8),
             nlink: stats.nlink,
-          } satisfies FileAttr;
+          };
+
+          return fsEntry;
         })
       );
 

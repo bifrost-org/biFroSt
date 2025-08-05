@@ -70,8 +70,6 @@ Full description of the file’s metadata and optional new path, and writing mod
 | `size`    | Meaning depends on `mode`:<br>- In `"write"`, `"append"`, and `"write_at"`, it represents the size in bytes of the provided content.<br>- In `"truncate"`, it defines the final size of the file after truncation or expansion. | `number`               | Yes          |
 | `atime`   | Last access timestamp (ISO 8601)                                                                                                                                                                                                | `string`               | Yes          |
 | `mtime`   | Last content modification timestamp (ISO 8601)                                                                                                                                                                                  | `string`               | Yes          |
-| `ctime`   | Last metadata modification timestamp (ISO 8601)                                                                                                                                                                                 | `string`               | Yes          |
-| `crtime`  | File creation timestamp (ISO 8601)                                                                                                                                                                                              | `string`               | No           |
 | `kind`    | File type: one of "regular_file", "soft_link", "hard_link"                                                                                                                                                                      | `string`               | Yes          |
 | `refPath` | Required if `kind` is `"soft_link"` or `"hard_link"`; points to the target file                                                                                                                                                 | `string`               | Conditional  |
 | `perm`    | File permission in octal form (e.g. `644`)                                                                                                                                                                                      | `string`               | Yes          |
@@ -104,8 +102,6 @@ Correctly naming these fields is required for the server to correctly parse and 
   "size": 1024,
   "atime": "2025-07-30T17:00:00.000Z",
   "mtime": "2025-07-30T17:00:00.000Z",
-  "ctime": "2025-07-30T17:00:00.000Z",
-  "crtime": "2025-07-30T15:12:30.000Z",
   "kind": "regular_file",
   "perm": "644",
   "mode": "write"
