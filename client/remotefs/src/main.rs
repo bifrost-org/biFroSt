@@ -10,14 +10,22 @@ async fn main() {
 
     // Configurazione
     let config = Config {
-        server_url: "https://bifrost.oberon-server.it".to_string(),
-        port: 443,
-        mount_point: PathBuf::from("/tmp/remotefs_mount31"),
+        server_url: "http://localhost".to_string(),
+        port: 8080,
+        mount_point: PathBuf::from("/tmp/remotefs_mount32"),
         api_key: None,
         username: None,
         password: None,
         timeout: std::time::Duration::from_secs(60),
     };
+
+    ////////////
+    
+    let client = RemoteClient::new(&config);
+    client.user_registration("provarust").await.expect("Registrazione fallita");
+
+    ////////////
+
 
     println!("📡 Server: {}", config.server_full_url());
     println!("📁 Mount point: {:?}", config.mount_point);

@@ -605,4 +605,30 @@ let metadata_json = serde_json::Value::Object(metadata_map);
 
         self.handle_empty_response(response).await
     }
+
+    // user registration
+    pub async fn user_registration(&self, username: &str) -> Result<(), ClientError> {
+        let url = format!("{}{}", self.base_url, "/users");
+
+        let request_body = RegisterRequest { username };
+
+        let response = self
+            .http_client
+            .post(&url)
+            .json(&request_body)
+            .timeout(self.timeout)
+            .send()
+            .await?;
+
+         if response.status().is_success() {
+            let keys: UserKeys = response.json().await.map_err(ClientError::Http)?;
+            println!("api_key: {}", keys.api_key);
+            println!("secret_key: {}", keys.secret_key);
+            Ok(())
+        } else {
+            let status_code = response.status().as_u16();
+            let message = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            Err(self.map_http_error(status_code, message))
+        }
+    }
 }
