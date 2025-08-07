@@ -142,3 +142,15 @@ pub struct CreateDirectoryRequest {
     pub path: String,
     pub permissions_octal: String,
 }
+
+// registration body
+#[derive(Serialize)]
+pub struct RegisterRequest<'a> {
+    pub username: &'a str,
+}
+
+#[derive(Deserialize)]
+pub struct UserKeys {
+    pub api_key: String,
+    pub secret_key: String,
+}
