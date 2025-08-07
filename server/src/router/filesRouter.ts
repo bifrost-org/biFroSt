@@ -9,14 +9,9 @@ import {
   validatePathParameter,
 } from "../middleware/validation";
 import { MetadataPut } from "../validation/metadataSchema";
+import { getPath, USER_PATH } from "../utils/path";
 
 export const filesRouter: Router = Router();
-
-const USER_PATH = path.resolve(process.env.USERS_PATH!);
-
-function getPath(a: string | undefined, b: string): string {
-  return path.join(a!, b);
-}
 
 // GET /files/:path
 filesRouter.get(
