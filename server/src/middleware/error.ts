@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { StatusCodes } from "http-status-codes";
 import { FileError } from "../error/fileError";
+import { UserError } from "../error/userError";
 
 /**
  * This should be the last middleware for all routes,
@@ -17,7 +18,7 @@ export function sinkErrorHandler(
     return;
   }
 
-  if (error instanceof FileError) {
+  if (error instanceof FileError || error instanceof UserError) {
     response.status(error.statusCode).json({ message: error.message });
   } else {
     const message =
