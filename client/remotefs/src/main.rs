@@ -12,7 +12,7 @@ async fn main() {
     let config = Config {
         server_url: "https://bifrost.oberon-server.it".to_string(),
         port: 443,
-        mount_point: PathBuf::from("/tmp/remotefs_mount31"),
+        mount_point: PathBuf::from("/tmp/remotefs_mount32"),
         api_key: None,
         username: None,
         password: None,
@@ -22,63 +22,8 @@ async fn main() {
     println!("📡 Server: {}", config.server_full_url());
     println!("📁 Mount point: {:?}", config.mount_point);
 
-    // ✅ GESTIONE INTELLIGENTE DIRECTORY MOUNT
-    if config.mount_point.exists() {
-        println!("📁 Directory mount già esistente");
-        
-        // Verifica se è già montata
-        if is_mounted(&config.mount_point) {
-            println!("🔄 Directory già montata, smonto...");
-            
-            if unmount_filesystem(&config.mount_point) {
-                println!("✅ Filesystem smontato con successo");
-            } else {
-                eprintln!("❌ Impossibile smontare il filesystem");
-                eprintln!("💡 Prova manualmente: fusermount -u {:?}", config.mount_point);
-                eprintln!("💡 Oppure: umount {:?}", config.mount_point);
-                std::process::exit(1);
-            }
-        }
-        
-        // Verifica che sia vuota dopo lo smontaggio
-        match std::fs::read_dir(&config.mount_point) {
-            Ok(entries) => {
-                let count = entries.count();
-                if count > 0 {
-                    println!("🧹 Directory non vuota ({} elementi), pulisco...", count);
-                    
-                    // Prova a pulire la directory
-                    match std::fs::remove_dir_all(&config.mount_point) {
-                        Ok(_) => {
-                            println!("✅ Directory pulita");
-                            std::fs::create_dir_all(&config.mount_point)
-                                .expect("Cannot recreate mount dir");
-                        }
-                        Err(e) => {
-                            eprintln!("❌ Impossibile pulire directory: {}", e);
-                            eprintln!("💡 Pulisci manualmente: rm -rf {:?}", config.mount_point);
-                            std::process::exit(1);
-                        }
-                    }
-                } else {
-                    println!("✅ Directory mount vuota e pronta");
-                }
-            }
-            Err(e) => {
-                eprintln!("❌ Impossibile leggere directory mount: {}", e);
-                std::process::exit(1);
-            }
-        }
-    } else {
-        // Crea directory se non esiste
-        match std::fs::create_dir_all(&config.mount_point) {
-            Ok(_) => println!("✅ Directory di mount creata"),
-            Err(e) => {
-                eprintln!("❌ Impossibile creare directory di mount: {}", e);
-                std::process::exit(1);
-            }
-        }
-    }
+    // ✅ LOGICA SEMPLIFICATA SECONDO LE TUE SPECIFICHE
+    prepare_mount_point(&config.mount_point);
 
     // ✅ FILESYSTEM E MOUNT
     let filesystem = RemoteFileSystem::new(RemoteClient::new(&config));
@@ -110,73 +55,147 @@ async fn main() {
     }
 }
 
-// ✅ FUNZIONI HELPER PER GESTIONE MOUNT
-fn is_mounted(mount_point: &PathBuf) -> bool {
-    // Verifica tramite comando mount
-    if let Ok(output) = std::process::Command::new("mount").output() {
-        let mount_output = String::from_utf8_lossy(&output.stdout);
-        let mount_point_str = mount_point.to_string_lossy();
+fn prepare_mount_point(mount_point: &PathBuf) {
+    println!("🔍 Preparazione mount point: {:?}", mount_point);
+    
+    // Estrai directory padre e nome directory
+    let parent_dir = mount_point.parent().unwrap_or(std::path::Path::new("/"));
+    let dir_name = mount_point.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown");
+    
+    println!("📁 Directory padre: {:?}", parent_dir);
+    println!("📁 Nome directory: {}", dir_name);
+    
+    // Verifica se la directory padre esiste
+    if !parent_dir.exists() {
+        eprintln!("❌ Directory padre non esiste: {:?}", parent_dir);
+        std::process::exit(1);
+    }
+    
+    // Controlla se il mount point è contenuto nella directory padre
+    let mount_point_exists = check_if_mount_point_exists_in_parent(parent_dir, dir_name);
+    
+    if mount_point_exists {
+        println!("📁 Mount point trovato nella directory padre");
         
-        if mount_output.contains(&*mount_point_str) {
-            return true;
-        }
+        // Unmount + rimozione
+        println!("🔄 Eseguo umount -l {:?}", mount_point);
+        let _ = std::process::Command::new("umount")
+            .arg(mount_point)
+            .output();
+        
+        println!("🗑️ Eseguo rmdir {:?}", mount_point);
+        let _ = std::process::Command::new("rmdir")
+            .arg(mount_point)
+            .output();
+        
+        /*
+        // ✅ FORZA INVALIDAZIONE CACHE DIRECTORY PADRE
+        println!("🧹 Forza invalidazione cache directory padre...");
+        invalidate_directory_cache(parent_dir);
+        */
+        // Attendi stabilizzazione più lunga
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+    } else {
+        println!("📁 Mount point non trovato nella directory padre");
     }
     
-    // Verifica tramite /proc/mounts su Linux
-    if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
-        let mount_point_str = mount_point.to_string_lossy();
-        if mounts.contains(&*mount_point_str) {
-            return true;
+    // Crea directory mount
+    println!("📁 Creo directory mount: {:?}", mount_point);
+    match std::fs::create_dir_all(mount_point) {
+        Ok(_) => {
+            println!("✅ Directory mount creata");
+            
+            // ✅ FORZA INVALIDAZIONE CACHE DOPO CREAZIONE
+            invalidate_directory_cache(parent_dir);
+        }
+        Err(e) => {
+            eprintln!("❌ Errore creazione directory: {}", e);
+            std::process::exit(1);
         }
     }
-    
-    false
 }
 
-fn unmount_filesystem(mount_point: &PathBuf) -> bool {
-    // Prova prima con fusermount
-    if let Ok(output) = std::process::Command::new("fusermount")
-        .arg("-u")
-        .arg(mount_point)
-        .output() 
-    {
-        if output.status.success() {
-            return true;
+// ✅ FUNZIONE PER INVALIDARE CACHE DIRECTORY
+fn invalidate_directory_cache(dir_path: &std::path::Path) {
+    println!("🧹 Invalidazione cache per: {:?}", dir_path);
+    
+    // Metodo 1: sync per forzare flush filesystem
+    let _ = std::process::Command::new("sync").output();
+    
+    // Metodo 2: touch directory per aggiornare timestamp
+    let _ = std::process::Command::new("touch")
+        .arg(dir_path)
+        .output();
+    
+    // Metodo 3: ls directory per forzare refresh cache
+    let _ = std::process::Command::new("ls")
+        .arg("-la")
+        .arg(dir_path)
+        .output();
+    
+    // Metodo 4: drop cache VFS (richiede root, ma proviamo)
+    let _ = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("echo 2 > /proc/sys/vm/drop_caches 2>/dev/null || true")
+        .output();
+    
+    println!("✅ Cache invalidation completata");
+}
+// ✅ VERIFICA ESISTENZA NELLA DIRECTORY PADRE
+fn check_if_mount_point_exists_in_parent(parent_dir: &std::path::Path, dir_name: &str) -> bool {
+    println!("🔍 Cerco '{}' in {:?}", dir_name, parent_dir);
+    
+    // Metodo 1: Lettura directory normale
+    match std::fs::read_dir(parent_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                if let Some(entry_name) = entry.file_name().to_str() {
+                    if entry_name == dir_name {
+                        println!("  ✅ Trovato '{}' tramite read_dir", dir_name);
+                        return true;
+                    }
+                }
+            }
+            println!("  ❌ Non trovato '{}' tramite read_dir", dir_name);
+        }
+        Err(e) => {
+            println!("  ⚠️ Errore read_dir: {}", e);
         }
     }
-
-    // Prova con umount normale
-    if let Ok(output) = std::process::Command::new("umount")
-        .arg(mount_point)
-        .output() 
+    
+    // Metodo 2: Comando ls come fallback
+    match std::process::Command::new("ls")
+        .arg("-1")  // Una colonna
+        .arg(parent_dir)
+        .output()
     {
-        if output.status.success() {
-            return true;
+        Ok(output) if output.status.success() => {
+            let ls_output = String::from_utf8_lossy(&output.stdout);
+            for line in ls_output.lines() {
+                if line.trim() == dir_name {
+                    println!("  ✅ Trovato '{}' tramite ls", dir_name);
+                    return true;
+                }
+            }
+            println!("  ❌ Non trovato '{}' tramite ls", dir_name);
+        }
+        Ok(output) => {
+            println!("  ⚠️ ls fallito: {}", String::from_utf8_lossy(&output.stderr));
+        }
+        Err(e) => {
+            println!("  ⚠️ Errore comando ls: {}", e);
         }
     }
-
-    // Prova con umount lazy (forza)
-    if let Ok(output) = std::process::Command::new("umount")
-        .arg("-l")
-        .arg(mount_point)
-        .output() 
-    {
-        if output.status.success() {
-            return true;
-        }
+    
+    // Metodo 3: Test diretto del path
+    let full_path = parent_dir.join(dir_name);
+    if full_path.exists() {
+        println!("  ✅ Trovato '{}' tramite path exists", dir_name);
+        return true;
     }
-
-    // Ultima risorsa: prova con sudo (se disponibile)
-    if let Ok(output) = std::process::Command::new("sudo")
-        .arg("umount")
-        .arg("-l")
-        .arg(mount_point)
-        .output() 
-    {
-        if output.status.success() {
-            return true;
-        }
-    }
-
+    
+    println!("  ❌ '{}' non trovato con nessun metodo", dir_name);
     false
 }
