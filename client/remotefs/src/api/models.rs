@@ -88,6 +88,7 @@ pub struct WriteRequest {
     pub perm: String,
     pub mode: Mode,
     pub data: Option<Vec<u8>>,
+    pub offset: Option<u64>,
 }
 
 impl FileKind {

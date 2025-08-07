@@ -1,19 +1,18 @@
-use std::path::PathBuf;
+use fuser::{mount2, MountOption};
 use remotefs::api::client::RemoteClient;
 use remotefs::config::settings::Config;
 use remotefs::fs::operations::RemoteFileSystem;
-use fuser::{mount2, MountOption};
-use tokio::signal;
+use std::path::PathBuf;
 
 #[tokio::main]
 async fn main() {
     println!("🚀 Avvio RemoteFS...");
-    
-    // Configurazione standard
+
+    // Configurazione
     let config = Config {
         server_url: "https://bifrost.oberon-server.it".to_string(),
         port: 443,
-        mount_point: PathBuf::from("/tmp/remotefs_mount11"),
+        mount_point: PathBuf::from("/tmp/remotefs_mount31"),
         api_key: None,
         username: None,
         password: None,
@@ -23,8 +22,55 @@ async fn main() {
     println!("📡 Server: {}", config.server_full_url());
     println!("📁 Mount point: {:?}", config.mount_point);
 
-    // Crea la directory di mount se non esiste
-    if !config.mount_point.exists() {
+    // ✅ GESTIONE INTELLIGENTE DIRECTORY MOUNT
+    if config.mount_point.exists() {
+        println!("📁 Directory mount già esistente");
+        
+        // Verifica se è già montata
+        if is_mounted(&config.mount_point) {
+            println!("🔄 Directory già montata, smonto...");
+            
+            if unmount_filesystem(&config.mount_point) {
+                println!("✅ Filesystem smontato con successo");
+            } else {
+                eprintln!("❌ Impossibile smontare il filesystem");
+                eprintln!("💡 Prova manualmente: fusermount -u {:?}", config.mount_point);
+                eprintln!("💡 Oppure: umount {:?}", config.mount_point);
+                std::process::exit(1);
+            }
+        }
+        
+        // Verifica che sia vuota dopo lo smontaggio
+        match std::fs::read_dir(&config.mount_point) {
+            Ok(entries) => {
+                let count = entries.count();
+                if count > 0 {
+                    println!("🧹 Directory non vuota ({} elementi), pulisco...", count);
+                    
+                    // Prova a pulire la directory
+                    match std::fs::remove_dir_all(&config.mount_point) {
+                        Ok(_) => {
+                            println!("✅ Directory pulita");
+                            std::fs::create_dir_all(&config.mount_point)
+                                .expect("Cannot recreate mount dir");
+                        }
+                        Err(e) => {
+                            eprintln!("❌ Impossibile pulire directory: {}", e);
+                            eprintln!("💡 Pulisci manualmente: rm -rf {:?}", config.mount_point);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    println!("✅ Directory mount vuota e pronta");
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Impossibile leggere directory mount: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Crea directory se non esiste
         match std::fs::create_dir_all(&config.mount_point) {
             Ok(_) => println!("✅ Directory di mount creata"),
             Err(e) => {
@@ -34,151 +80,103 @@ async fn main() {
         }
     }
 
-    // Verifica che la directory sia vuota (non già montata)
-    match std::fs::read_dir(&config.mount_point) {
-        Ok(entries) => {
-            if entries.count() > 0 {
-                eprintln!("⚠️ Directory di mount non vuota. Potrebbe essere già montata.");
-                eprintln!("💡 Prova: fusermount -u {:?}", config.mount_point);
-                std::process::exit(1);
-            }
-        }
-        Err(e) => {
-            eprintln!("❌ Impossibile leggere directory di mount: {}", e);
-            std::process::exit(1);
-        }
-    }
-    
-    // Crea il filesystem
+    // ✅ FILESYSTEM E MOUNT
     let filesystem = RemoteFileSystem::new(RemoteClient::new(&config));
     println!("✅ Filesystem inizializzato");
 
-
-
-    // Opzioni di mount FUSE
     let options = [
         MountOption::RW,
         MountOption::FSName("remotefs".to_string()),
-        // ❌ RIMUOVI: MountOption::AllowOther,        // Causa errore senza config
-        MountOption::DefaultPermissions, // Usa permessi standard
+        MountOption::DefaultPermissions,
     ];
 
-    println!("🔧 Montaggio filesystem su {:?}...", config.mount_point);
-    
-    // Clona il mount point per gestione segnali
-    let mount_point_for_cleanup = config.mount_point.clone();
-    let mount_point_display = config.mount_point.clone();
-    
-    // ✅ GESTIONE CTRL+C PER CLEANUP AUTOMATICO
-    tokio::spawn(async move {
-        match signal::ctrl_c().await {
-            Ok(_) => {
-                println!("\n🛑 Ricevuto Ctrl+C, smonto il filesystem...");
-                
-                // Prova diversi metodi di smount
-                let cleanup_success = cleanup_mount(&mount_point_for_cleanup);
-                
-                if cleanup_success {
-                    println!("✅ Filesystem smontato correttamente");
-                } else {
-                    println!("⚠️ Problemi durante lo smount. Potrebbe essere necessario un cleanup manuale:");
-                    println!("   fusermount -u {:?}", mount_point_for_cleanup);
-                    println!("   sudo umount {:?}", mount_point_for_cleanup);
-                }
-                
-                println!("👋 Uscita...");
-                std::process::exit(0);
-            }
-            Err(e) => {
-                eprintln!("❌ Errore nell'ascolto di Ctrl+C: {}", e);
-            }
-        }
-    });
-    
-    // Spawna il mount in un task bloccante
-    println!("⏳ Avvio mount FUSE...");
-    let mount_result = tokio::task::spawn_blocking(move || {
-        mount2(filesystem, &config.mount_point, &options)
-    }).await;
+    println!("🔧 Montaggio filesystem...");
+    println!("📋 Per testare: ls {:?}", config.mount_point);
+    println!("🛑 Premi Ctrl+C per terminare");
 
-    match mount_result {
-        Ok(Ok(())) => {
-            println!("✅ Filesystem montato con successo!");
-            println!("🔍 Esplora il filesystem: {:?}", mount_point_display);
-            println!("📋 Comandi utili:");
-            println!("   ls {:?}", mount_point_display);
-            println!("   touch {:?}/test.txt", mount_point_display);
-            println!("   echo 'Hello' > {:?}/hello.txt", mount_point_display);
-            println!("🔄 Il processo rimarrà attivo per mantenere il mount...");
-            println!("💡 Premi Ctrl+C per smontare e uscire");
-            
-            // Mantieni il processo attivo
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                
-                // Controlla periodicamente che il mount sia ancora valido
-                if !mount_point_display.exists() {
-                    eprintln!("❌ Directory di mount scomparsa!");
-                    std::process::exit(1);
-                }
-            }
-        }
-        Ok(Err(e)) => {
-            eprintln!("❌ Errore nel montaggio FUSE: {}", e);
-            eprintln!("💡 Possibili soluzioni:");
-            eprintln!("   - Verifica che FUSE sia installato: sudo apt install fuse");
-            eprintln!("   - Controlla permessi: sudo usermod -a -G fuse $USER");
-            eprintln!("   - Riavvia la sessione dopo aver aggiunto il gruppo");
-            eprintln!("   - Verifica che la directory non sia già montata");
-            std::process::exit(1);
-        }
-        Err(e) => {
-            eprintln!("❌ Errore nel task di mount: {}", e);
-            std::process::exit(1);
-        }
+    // ✅ MOUNT DIRETTO CON spawn_blocking
+    let mount_point_clone = config.mount_point.clone();
+    
+    let mount_task = tokio::task::spawn_blocking(move || {
+        println!("📡 Avvio mount2 in spawn_blocking...");
+        mount2(filesystem, &mount_point_clone, &options)
+    });
+
+    // ✅ ATTENDI RISULTATO
+    match mount_task.await {
+        Ok(Ok(())) => println!("✅ Mount terminato"),
+        Ok(Err(e)) => eprintln!("❌ Errore mount: {}", e),
+        Err(e) => eprintln!("❌ Errore task: {}", e),
     }
 }
 
-/// Funzione helper per pulire il mount con diversi metodi
-fn cleanup_mount(mount_point: &PathBuf) -> bool {
-    // Metodo 1: fusermount (raccomandato per FUSE)
+// ✅ FUNZIONI HELPER PER GESTIONE MOUNT
+fn is_mounted(mount_point: &PathBuf) -> bool {
+    // Verifica tramite comando mount
+    if let Ok(output) = std::process::Command::new("mount").output() {
+        let mount_output = String::from_utf8_lossy(&output.stdout);
+        let mount_point_str = mount_point.to_string_lossy();
+        
+        if mount_output.contains(&*mount_point_str) {
+            return true;
+        }
+    }
+    
+    // Verifica tramite /proc/mounts su Linux
+    if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+        let mount_point_str = mount_point.to_string_lossy();
+        if mounts.contains(&*mount_point_str) {
+            return true;
+        }
+    }
+    
+    false
+}
+
+fn unmount_filesystem(mount_point: &PathBuf) -> bool {
+    // Prova prima con fusermount
     if let Ok(output) = std::process::Command::new("fusermount")
         .arg("-u")
         .arg(mount_point)
-        .output() {
+        .output() 
+    {
         if output.status.success() {
             return true;
         }
     }
-    
-    // Metodo 2: umount standard
+
+    // Prova con umount normale
     if let Ok(output) = std::process::Command::new("umount")
         .arg(mount_point)
-        .output() {
+        .output() 
+    {
         if output.status.success() {
             return true;
         }
     }
-    
-    // Metodo 3: umount forzato
-    if let Ok(output) = std::process::Command::new("umount")
-        .arg("-f")
-        .arg(mount_point)
-        .output() {
-        if output.status.success() {
-            return true;
-        }
-    }
-    
-    // Metodo 4: lazy umount
+
+    // Prova con umount lazy (forza)
     if let Ok(output) = std::process::Command::new("umount")
         .arg("-l")
         .arg(mount_point)
-        .output() {
+        .output() 
+    {
         if output.status.success() {
             return true;
         }
     }
-    
+
+    // Ultima risorsa: prova con sudo (se disponibile)
+    if let Ok(output) = std::process::Command::new("sudo")
+        .arg("umount")
+        .arg("-l")
+        .arg(mount_point)
+        .output() 
+    {
+        if output.status.success() {
+            return true;
+        }
+    }
+
     false
 }

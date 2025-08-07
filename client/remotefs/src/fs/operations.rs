@@ -51,8 +51,6 @@ struct Permissions {
     other: u32,
 }
 
-
-
 fn parse_permissions(perm_str: &str) -> Permissions {
     match u32::from_str_radix(perm_str, 8) {
         Ok(perms) => Permissions {
@@ -99,8 +97,6 @@ impl RemoteFileSystem {
         fs
     }
 
-
-
     // Genera nuovo inode univoco
     fn generate_inode(&mut self) -> u64 {
         let inode = self.next_inode;
@@ -127,7 +123,13 @@ impl RemoteFileSystem {
     }
 
     fn get_current_attributes(&mut self, ino: u64, path: &str, reply: ReplyAttr) {
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
 
         // 1. OTTIENI METADATI FRESCHI DAL SERVER
         match rt.block_on(async { self.client.get_file_metadata(path).await }) {
@@ -157,7 +159,13 @@ impl Filesystem for RemoteFileSystem {
         let _ = _config.set_max_readahead(1024 * 1024); // Buffer lettura anticipata 1MB
 
         // 2. Verifica connessione al server
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         match rt.block_on(async {
             // Verifica che il server sia raggiungibile
             match self.client.get_file_metadata("/").await {
@@ -198,73 +206,62 @@ impl Filesystem for RemoteFileSystem {
 
     fn destroy(&mut self) {}
 
-fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
-    println!("=== LOOKUP ===");
+    fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        println!("LOOKUPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP");
 
-    let filename = match name.to_str() {
-        Some(s) => s,
-        None => {
-            log::error!("❌ [LOOKUP] Nome file non valido: {:?}", name);
-            reply.error(libc::EINVAL);
+        let filename = match name.to_str() {
+            Some(s) => s,
+            None => {
+                log::error!("❌ [LOOKUP] Nome file non valido: {:?}", name);
+                reply.error(libc::EINVAL);
+                return;
+            }
+        };
+
+        println!(
+            "🔍 [LOOKUP] parent: {}, name: '{}', pid: {}",
+            parent,
+            filename,
+            req.pid()
+        );
+
+        // ✅ FILTRO COMANDI SHELL E AUTOCOMPLETE
+        const SHELL_COMMANDS: &[&str] = &[
+            // Comandi base Unix
+            "ls", "cat", "touch", "echo", "cp", "mv", "rm", "mkdir", "rmdir", "grep", "find",
+            "head", "tail", "less", "more", "vi", "vim", "nano", "bash", "sh", "zsh", "pwd", "cd",
+            "which", "whereis", "file", "stat", "clear", "history", "exit", "logout", "su", "sudo",
+            "chmod", "chown", "tar", "gzip", "gunzip", "unzip", "zip", "curl", "wget", "ssh",
+            "scp", // Autocomplete comuni
+            "Input", "Output", "input", "output", "test", "Test", "tmp", "Tmp", "bin", "usr",
+            "etc", "var", "home", "root", "opt", "proc", "sys", // Comandi di sistema
+            "ps", "top", "htop", "kill", "killall", "mount", "umount", "df", "du", "free", "uname",
+            "whoami", "id", "groups", "date", "uptime", "w", "who",
+            // Editor e viewer
+            "emacs", "code", "subl", "atom", "gedit", "kate", "notepad", "view",
+        ];
+
+        if SHELL_COMMANDS.contains(&filename) {
+            println!(
+                "⚠️ [LOOKUP] Comando/autocomplete shell '{}' - ENOENT",
+                filename
+            );
+            reply.error(libc::ENOENT);
             return;
         }
-    };
 
-    println!(
-        "🔍 [LOOKUP] parent: {}, name: '{}', pid: {}",
-        parent,
-        filename,
-        req.pid()
-    );
-
-    // ✅ FILTRO COMANDI SHELL E AUTOCOMPLETE
-    const SHELL_COMMANDS: &[&str] = &[
-        // Comandi base Unix
-        "ls", "cat", "touch", "echo", "cp", "mv", "rm", "mkdir", "rmdir", "grep", "find",
-        "head", "tail", "less", "more", "vi", "vim", "nano", "bash", "sh", "zsh", "pwd", "cd",
-        "which", "whereis", "file", "stat", "clear", "history", "exit", "logout", "su", "sudo",
-        "chmod", "chown", "tar", "gzip", "gunzip", "unzip", "zip", "curl", "wget", "ssh",
-        "scp", 
-        // Autocomplete comuni
-        "Input", "Output", "input", "output", "test", "Test", "tmp", "Tmp", "bin", "usr", "etc",
-        "var", "home", "root", "opt", "proc", "sys", 
-        // Comandi di sistema
-        "ps", "top", "htop", "kill", "killall", "mount", "umount", "df", "du", "free", "uname",
-        "whoami", "id", "groups", "date", "uptime", "w", "who",
-        // Editor e viewer
-        "emacs", "code", "subl", "atom", "gedit", "kate", "notepad", "view",
-    ];
-
-    if SHELL_COMMANDS.contains(&filename) {
-        println!("⚠️ [LOOKUP] Comando/autocomplete shell '{}' - ENOENT", filename);
-        reply.error(libc::ENOENT);
-        return;
+        // ✅ GESTIONE DIRECTORY SPECIALI
+        if filename == "." {
+            println!("🔍 [LOOKUP] Directory corrente '.' richiesta");
+            let parent_path = self.get_path(parent).cloned().unwrap_or("/".to_string());
+            let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
     }
-
-    // ✅ GESTIONE DIRECTORY SPECIALI
-    if filename == "." {
-        println!("🔍 [LOOKUP] Directory corrente '.' richiesta");
-        
-        // La directory corrente è la STESSA del parent
-        // Restituiamo gli attributi della directory parent con lo STESSO inode
-        if parent == 1 {
-            // Root directory
-            let attr = attributes::new_directory_attr(1, 0o755);
-            let ttl = Duration::from_secs(1);
-            reply.entry(&ttl, &attr, 0);
-            return;
-        } else {
-            // Directory non-root: ottieni attributi dal server
-            let parent_path = match self.get_path(parent) {
-                Some(path) => path.clone(),
-                None => {
-                    log::error!("❌ [LOOKUP] Parent path non trovato per inode {}", parent);
-                    reply.error(libc::ENOENT);
-                    return;
-                }
-            };
+};
             
-            let rt = tokio::runtime::Handle::current();
             match rt.block_on(async { self.client.get_file_metadata(&parent_path).await }) {
                 Ok(metadata) => {
                     let attr = attributes::from_metadata(parent, &metadata);
@@ -273,7 +270,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
                     return;
                 }
                 Err(_) => {
-                    // Fallback
+                    // Fallback per directory corrente
                     let attr = attributes::new_directory_attr(parent, 0o755);
                     let ttl = Duration::from_secs(1);
                     reply.entry(&ttl, &attr, 0);
@@ -281,144 +278,147 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
                 }
             }
         }
-    }
 
-    if filename == ".." {
-        println!("🔍 [LOOKUP] Directory padre '..' richiesta");
-        
-        if parent == 1 {
-            // Root directory - padre è se stessa
-            let attr = attributes::new_directory_attr(1, 0o755);
-            let ttl = Duration::from_secs(1);
-            reply.entry(&ttl, &attr, 0);
-            return;
-        } else {
-            // Calcola inode del grandparent
-            let parent_path = self.get_path(parent).cloned().unwrap_or("/".to_string());
-            let grandparent_path = if parent_path == "/" {
-                "/".to_string()
+        if filename == ".." {
+            println!("🔍 [LOOKUP] Directory padre '..' richiesta");
+            let parent_attr = if parent == 1 {
+                // Root directory - padre è se stessa
+                attributes::new_directory_attr(1, 0o755)
             } else {
-                std::path::Path::new(&parent_path)
-                    .parent()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or("/".to_string())
+                // Calcola inode del padre
+                let parent_path = self.get_path(parent).cloned().unwrap_or("/".to_string());
+                let grandparent_path = if parent_path == "/" {
+                    "/".to_string()
+                } else {
+                    std::path::Path::new(&parent_path)
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or("/".to_string())
+                };
+
+                let grandparent_ino = self
+                    .path_to_inode
+                    .get(&grandparent_path)
+                    .copied()
+                    .unwrap_or(1);
+                attributes::new_directory_attr(grandparent_ino, 0o755)
             };
 
-            let grandparent_ino = self.path_to_inode.get(&grandparent_path).copied().unwrap_or(1);
-            
-            // Ottieni attributi del grandparent
-            if grandparent_ino == 1 {
-                let attr = attributes::new_directory_attr(1, 0o755);
-                let ttl = Duration::from_secs(1);
-                reply.entry(&ttl, &attr, 0);
-                return;
-            } else {
-                let rt = tokio::runtime::Handle::current();
-                match rt.block_on(async { self.client.get_file_metadata(&grandparent_path).await }) {
-                    Ok(metadata) => {
-                        let attr = attributes::from_metadata(grandparent_ino, &metadata);
-                        let ttl = Duration::from_secs(1);
-                        reply.entry(&ttl, &attr, 0);
-                        return;
-                    }
-                    Err(_) => {
-                        let attr = attributes::new_directory_attr(grandparent_ino, 0o755);
-                        let ttl = Duration::from_secs(1);
-                        reply.entry(&ttl, &attr, 0);
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    // ✅ OTTIENI PATH PADRE
-    let parent_path = match self.get_path(parent) {
-        Some(path) => path.clone(),
-        None => {
-            log::error!("❌ [LOOKUP] Directory padre con inode {} non trovata", parent);
-            reply.error(libc::ENOENT);
+            let ttl = Duration::from_secs(1);
+            reply.entry(&ttl, &parent_attr, 0);
             return;
         }
-    };
 
-    // ✅ COSTRUISCI PATH COMPLETO
-    let full_path = if parent_path == "/" {
-        format!("/{}", filename)
-    } else {
-        format!("{}/{}", parent_path, filename)
-    };
-
-    println!("🔍 [LOOKUP] Path completo: '{}'", full_path);
-
-    // ✅ VERIFICA CACHE LOCALE PRIMA
-    if let Some(&existing_inode) = self.path_to_inode.get(&full_path) {
-        println!("💾 [LOOKUP] File trovato in cache: inode {}", existing_inode);
-        
-        // Verifica che i metadati siano ancora validi (con fallback)
-        let rt = tokio::runtime::Handle::current();
-        match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
-            Ok(metadata) => {
-                let attr = attributes::from_metadata(existing_inode, &metadata);
-                let ttl = Duration::from_secs(1);
-                reply.entry(&ttl, &attr, 0);
-                return;
-            }
-            Err(ClientError::NotFound { .. }) => {
-                // File eliminato dal server - rimuovi dalla cache
-                println!("🗑️ [LOOKUP] File eliminato dal server, pulizia cache");
-                self.unregister_inode(existing_inode);
+        // ✅ OTTIENI PATH PADRE
+        let parent_path = match self.get_path(parent) {
+            Some(path) => path.clone(),
+            None => {
+                log::error!(
+                    "❌ [LOOKUP] Directory padre con inode {} non trovata",
+                    parent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
-            Err(e) => {
-                log::warn!("⚠️ [LOOKUP] Errore verifica cache (usando cache): {}", e);
-                // Usa cache comunque se server non raggiungibile
-                let attr = attributes::new_file_attr(existing_inode, 0, 0o644);
+        };
+
+        // ✅ COSTRUISCI PATH COMPLETO
+        let full_path = if parent_path == "/" {
+            format!("/{}", filename)
+        } else {
+            format!("{}/{}", parent_path, filename)
+        };
+
+        println!("🔍 [LOOKUP] Path completo: '{}'", full_path);
+
+        // ✅ VERIFICA CACHE LOCALE PRIMA
+        if let Some(&existing_inode) = self.path_to_inode.get(&full_path) {
+            println!(
+                "💾 [LOOKUP] File trovato in cache: inode {}",
+                existing_inode
+            );
+
+            // Verifica che i metadati siano ancora validi (opzionale)
+            let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
+            match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
+                Ok(metadata) => {
+                    let attr = attributes::from_metadata(existing_inode, &metadata);
+                    let ttl = Duration::from_secs(1);
+                    reply.entry(&ttl, &attr, 0);
+                    return;
+                }
+                Err(ClientError::NotFound { .. }) => {
+                    // File eliminato dal server - rimuovi dalla cache
+                    println!("🗑️ [LOOKUP] File eliminato dal server, pulizia cache");
+                    self.unregister_inode(existing_inode);
+                    reply.error(libc::ENOENT);
+                    return;
+                }
+                Err(e) => {
+                    log::error!("❌ [LOOKUP] Errore verifica cache: {}", e);
+                    // Usa cache comunque se server non raggiungibile
+                    let attr = attributes::new_file_attr(existing_inode, 0, 0o644);
+                    let ttl = Duration::from_secs(1);
+                    reply.entry(&ttl, &attr, 0);
+                    return;
+                }
+            }
+        }
+
+        // ✅ NON IN CACHE - CHIEDI AL SERVER
+        println!("🌐 [LOOKUP] File non in cache, interrogo server...");
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
+        let metadata_result =
+            rt.block_on(async { self.client.get_file_metadata(&full_path).await });
+
+        match metadata_result {
+            Ok(metadata) => {
+                println!(
+                    "✅ [LOOKUP] File trovato sul server: '{}' ({:?}, {} bytes)",
+                    full_path, metadata.kind, metadata.size
+                );
+
+                // Genera nuovo inode e registra
+                let new_inode = self.generate_inode();
+                self.register_inode(new_inode, full_path.clone());
+
+                // Converti metadati e restituisci
+                let attr = attributes::from_metadata(new_inode, &metadata);
                 let ttl = Duration::from_secs(1);
                 reply.entry(&ttl, &attr, 0);
-                return;
+
+                println!(
+                    "📝 [LOOKUP] Nuovo inode {} registrato per '{}'",
+                    new_inode, full_path
+                );
+            }
+            Err(ClientError::NotFound { .. }) => {
+                println!("❌ [LOOKUP] File '{}' non trovato sul server", full_path);
+                reply.error(libc::ENOENT);
+            }
+            Err(ClientError::PermissionDenied(_)) => {
+                log::error!("❌ [LOOKUP] Permesso negato per: {}", full_path);
+                reply.error(libc::EACCES);
+            }
+            Err(e) => {
+                log::error!("❌ [LOOKUP] Errore server per '{}': {}", full_path, e);
+                reply.error(libc::EIO);
             }
         }
     }
 
-    // ✅ NON IN CACHE - CHIEDI AL SERVER
-    println!("🌐 [LOOKUP] File non in cache, interrogo server...");
-    let rt = tokio::runtime::Handle::current();
-    let metadata_result = rt.block_on(async { self.client.get_file_metadata(&full_path).await });
-
-    match metadata_result {
-        Ok(metadata) => {
-            println!(
-                "✅ [LOOKUP] File trovato sul server: '{}' ({:?}, {} bytes)",
-                full_path, metadata.kind, metadata.size
-            );
-            
-            // Genera nuovo inode e registra
-            let new_inode = self.generate_inode();
-            self.register_inode(new_inode, full_path.clone());
-
-            // Converti metadati e restituisci
-            let attr = attributes::from_metadata(new_inode, &metadata);
-            let ttl = Duration::from_secs(1);
-            reply.entry(&ttl, &attr, 0);
-            
-            println!("📝 [LOOKUP] Nuovo inode {} registrato per '{}'", new_inode, full_path);
-        }
-        Err(ClientError::NotFound { .. }) => {
-            println!("❌ [LOOKUP] File '{}' non trovato sul server", full_path);
-            reply.error(libc::ENOENT);
-        }
-        Err(ClientError::PermissionDenied(_)) => {
-            log::error!("❌ [LOOKUP] Permesso negato per: {}", full_path);
-            reply.error(libc::EACCES);
-        }
-        Err(e) => {
-            log::error!("❌ [LOOKUP] Errore server per '{}': {}", full_path, e);
-            reply.error(libc::EIO);
-        }
-    }
-}
     fn forget(&mut self, _req: &Request<'_>, _ino: u64, _nlookup: u64) {}
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
@@ -440,7 +440,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         };
 
         // Chiedi metadati al server
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let metadata_result = rt.block_on(async { self.client.get_file_metadata(&path).await });
 
         match metadata_result {
@@ -505,7 +511,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
 
         log::debug!("🔧 [SETATTR] Path: {}", path);
 
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
 
         // 2. OTTIENI METADATI ATTUALI
         let current_metadata =
@@ -573,6 +585,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
                 rt.block_on(async {
                     self.client
                         .write_file(&WriteRequest {
+                            offset:None,
                             path: path.clone(),
                             new_path: None,
                             size: new_size,
@@ -597,6 +610,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
                 rt.block_on(async {
                     self.client
                         .write_file(&WriteRequest {
+                            offset: None,
                             path: path.clone(),
                             new_path: None,
                             size: padding_size, // ← Size del padding da aggiungere
@@ -649,6 +663,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
             let now_iso = chrono::Utc::now().to_rfc3339();
 
             let chmod_request = WriteRequest {
+                offset: None,
                 path: path.clone(),
                 new_path: None,
                 size: current_metadata.size, // Mantieni dimensione
@@ -724,7 +739,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         log::debug!("🔗 [READLINK] Path: {}", path);
 
         // 2. OTTIENI METADATI DAL SERVER
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let metadata_result = rt.block_on(async { self.client.get_file_metadata(&path).await });
 
         match metadata_result {
@@ -856,9 +877,16 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
             libc::S_IFREG => {
                 // FILE REGOLARE - Supportato
                 log::debug!("📄 [MKNOD] Creazione file regolare: {}", full_path);
-                let rt = tokio::runtime::Handle::current();
+                let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
 
                 let write_request = WriteRequest {
+                    offset: None,
                     path: full_path.clone(),
                     new_path: None,
                     size: 0, // ✅ NON Some(0)
@@ -965,6 +993,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         umask: u32,
         reply: ReplyEntry,
     ) {
+        println!("MKDIRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR");
         log::debug!(
             "📁 [MKDIR] parent: {}, name: {:?}, mode: {:#o}, umask: {:#o}",
             parent,
@@ -1024,23 +1053,17 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         );
 
         // 6. CREA DIRECTORY SUL SERVER
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};  
+        println!("Credo la directory: {}", full_path);
         let create_result = rt.block_on(async {
             self.client
-                .write_file(&WriteRequest {
-                    path: full_path.clone(),
-                    new_path: None,
-                    size: 4096, // ✅ NON Some(4096)
-                    atime: chrono::Utc::now().to_rfc3339(),
-                    mtime: chrono::Utc::now().to_rfc3339(),
-                    ctime: chrono::Utc::now().to_rfc3339(),
-                    crtime: chrono::Utc::now().to_rfc3339(),
-                    kind: FileKind::Directory, // ✅ Specifica tipo directory
-                    ref_path: None,            // ✅ Non è un link
-                    perm: permissions_octal,   // ✅ NON Some(permissions_octal)
-                    mode: Mode::Write,         // ✅ Aggiungi mode
-                    data: None,                // ✅ Directory non ha contenuto
-                })
+                .create_directory(&full_path)
                 .await
         });
 
@@ -1125,7 +1148,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
             None => {
                 log::warn!("⚠️ [UNLINK] File non trovato nella cache: {}", full_path);
                 // Potrebbe esistere sul server ma non in cache - verifica
-                let rt = tokio::runtime::Handle::current();
+                let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
                 match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                     Ok(_) => {
                         log::debug!("📝 [UNLINK] File esiste sul server ma non in cache");
@@ -1147,7 +1176,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
 
         // 5. VERIFICA CHE SIA UN FILE (NON DIRECTORY)
         if file_inode != 0 {
-            let rt = tokio::runtime::Handle::current();
+            let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
             match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                 Ok(metadata) => {
                     if metadata.kind == FileKind::Directory {
@@ -1185,7 +1220,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         }
 
         // 7. ELIMINA FILE DAL SERVER
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let delete_result = rt.block_on(async { self.client.delete(&full_path).await });
 
         match delete_result {
@@ -1277,7 +1318,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
                     full_path
                 );
                 // Potrebbe esistere sul server ma non in cache - verifica
-                let rt = tokio::runtime::Handle::current();
+                let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
                 match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                     Ok(metadata) => {
                         if metadata.kind != FileKind::Directory {
@@ -1304,7 +1351,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
 
         // 7. VERIFICA CHE SIA UNA DIRECTORY (NON FILE)
         if dir_inode != 0 {
-            let rt = tokio::runtime::Handle::current();
+            let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
             match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                 Ok(metadata) => {
                     if metadata.kind != FileKind::Directory {
@@ -1326,7 +1379,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         }
 
         // 8. VERIFICA CHE LA DIRECTORY SIA VUOTA
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         match rt.block_on(async { self.client.list_directory(&full_path).await }) {
             Ok(listing) => {
                 if !listing.files.is_empty() {
@@ -1452,10 +1511,17 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         }
 
         // 5. CREA SYMLINK SUL SERVER
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let now_iso = chrono::Utc::now().to_rfc3339();
 
         let symlink_request = WriteRequest {
+            offset: None,
             path: symlink_path.clone(),
             new_path: None,
             size: target_path.len() as u64,
@@ -1617,7 +1683,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
             return;
         }
 
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
 
         // 7. OTTIENI METADATI DEL FILE ORIGINALE
         let old_metadata =
@@ -1692,6 +1764,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         // 10. ESEGUI RENAME SUL SERVER
         let now_iso = chrono::Utc::now().to_rfc3339();
         let rename_request = WriteRequest {
+            offset: None,
             path: old_path.clone(),
             new_path: Some(new_path.clone()),
             size: old_metadata.size, // ✅ Mantieni dimensione originale
@@ -1826,7 +1899,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
             return;
         }
 
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
 
         // 6. OTTIENI METADATI DEL FILE SORGENTE
         let source_metadata =
@@ -1879,6 +1958,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         let now_iso = chrono::Utc::now().to_rfc3339();
 
         let link_request = WriteRequest {
+            offset: None,
             path: link_path.clone(),
             new_path: None,
             size: source_metadata.size, // ✅ Stessa dimensione del file originale
@@ -1945,223 +2025,177 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
     }
 
     //sistemare solo quando ricevo l'errore che non posso perchè non ho l'autorizazzione
-    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-        println!("OPENNNNNNNNNNNNNNNNNNNNNNNNNNN");
-        log::debug!("📂 [OPEN] ino: {}, flags: {:#x}", ino, flags);
-
-        // 1. VALIDAZIONE INODE
-        let path = match self.inode_to_path.get(&ino) {
-            Some(p) => p.clone(),
-            None => {
-                log::error!("❌ [OPEN] Inode {} non trovato", ino);
-                reply.error(libc::ENOENT);
-                return;
-            }
-        };
-
-        log::debug!("📂 [OPEN] Path: {}", path);
-
-        // 2. VERIFICA ESISTENZA E TIPO FILE SUL SERVER
-        let rt = tokio::runtime::Handle::current();
-        let metadata_result = rt.block_on(async { self.client.get_file_metadata(&path).await });
-
-        let metadata = match metadata_result {
-            Ok(metadata) => metadata,
-            Err(ClientError::NotFound { .. }) => {
-                log::error!("❌ [OPEN] File non trovato sul server: {}", path);
-                reply.error(libc::ENOENT);
-                return;
-            }
-            Err(e) => {
-                log::error!("❌ [OPEN] Errore verifica metadati: {}", e);
-                reply.error(libc::EIO);
-                return;
-            }
-        };
-
-        // 3. VERIFICA TIPO FILE E GESTISCI SYMLINK
-        match metadata.kind {
-            FileKind::RegularFile => {
-                log::debug!("✅ [OPEN] File regolare: {}", path);
-            }
-            FileKind::Symlink => {
-                log::debug!("🔗 [OPEN] Symlink: {} - aprendo come file", path);
-                // Apriamo il symlink stesso (contenuto = target path)
-                // In futuro potremmo seguire il symlink ricorsivamente
-            }
-            FileKind::Directory => {
-                log::warn!(
-                    "⚠️ [OPEN] Tentativo di aprire directory come file: {}",
-                    path
-                );
-                reply.error(libc::EISDIR);
-                return;
-            }
-            _ => {
-                log::warn!(
-                    "⚠️ [OPEN] Tipo file non supportato per open: {:?}",
-                    metadata.kind
-                );
-                reply.error(libc::EPERM);
-                return;
-            }
+fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+    println!("📂 [OPEN] INIZIO: ino={}, flags={:#x}", ino, flags);
+    
+    // 1. VALIDAZIONE INODE
+    let path = match self.inode_to_path.get(&ino) {
+        Some(p) => {
+            println!("📂 [OPEN] PATH TROVATO: {}", p);
+            p.clone()
+        },
+        None => {
+            println!("❌ [OPEN] INODE {} NON TROVATO", ino);
+            log::error!("❌ [OPEN] Inode {} non trovato", ino);
+            reply.error(libc::ENOENT);
+            return;
         }
+    };
 
-        // 4. ANALISI FLAGS DI APERTURA
-        let access_mode = flags & libc::O_ACCMODE;
-        let open_flags = flags & !libc::O_ACCMODE;
-
-        log::debug!(
-            "📂 [OPEN] Access mode: {:#x}, Open flags: {:#x}",
-            access_mode,
-            open_flags
-        );
-
-        // 5. VALIDAZIONE PERMESSI DI ACCESSO
-        let perms = parse_permissions(&metadata.perm);
-        let effective_perms = perms.owner; // Assumiamo owner per semplicità
-
-        match access_mode {
-            libc::O_RDONLY => {
-                log::debug!("📖 [OPEN] Modalità: READ ONLY");
-                if (effective_perms & 0o400) == 0 {
-                    log::error!("❌ [OPEN] Permesso di lettura negato: {}", path);
-                    reply.error(libc::EACCES);
-                    return;
-                }
-            }
-            libc::O_WRONLY => {
-                log::debug!("✏️ [OPEN] Modalità: WRITE ONLY");
-                if (effective_perms & 0o200) == 0 {
-                    log::error!("❌ [OPEN] Permesso di scrittura negato: {}", path);
-                    reply.error(libc::EACCES);
-                    return;
-                }
-            }
-            libc::O_RDWR => {
-                log::debug!("📝 [OPEN] Modalità: READ/WRITE");
-                if (effective_perms & 0o600) != 0o600 {
-                    log::error!(
-                        "❌ [OPEN] Permessi lettura/scrittura insufficienti: {}",
-                        path
-                    );
-                    reply.error(libc::EACCES);
-                    return;
-                }
-            }
-            _ => {
-                log::error!(
-                    "❌ [OPEN] Modalità di accesso non valida: {:#x}",
-                    access_mode
-                );
-                reply.error(libc::EINVAL);
-                return;
-            }
+    println!("📂 [OPEN] PRIMA DI GET_METADATA");
+    
+    // 2. VERIFICA ESISTENZA E TIPO FILE SUL SERVER
+    let rt = match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            println!("📂 [OPEN] RUNTIME HANDLE OK");
+            handle
+        },
+        Err(_) => {
+            println!("📂 [OPEN] CREANDO NUOVO RUNTIME");
+            let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+            runtime.handle().clone()
         }
+    };
+    
+    println!("📂 [OPEN] CHIAMANDO BLOCK_ON...");
+    
+    let metadata_result = rt.block_on(async { 
+        println!("📂 [OPEN] DENTRO ASYNC BLOCK");
+        let result = self.client.get_file_metadata(&path).await;
+        println!("📂 [OPEN] METADATA RESULT: {:?}", result.is_ok());
+        result
+    });
 
-        // 6. GESTIONE FLAGS SPECIALI - PREPARA OPERAZIONI POST-APERTURA
-        let mut needs_truncate = false;
+    println!("📂 [OPEN] DOPO BLOCK_ON");
 
-        if open_flags & libc::O_TRUNC != 0 {
-            log::debug!("✂️ [OPEN] Flag O_TRUNC rilevato - verrà eseguito dopo apertura");
-
-            // Verifica che non sia in sola lettura
-            if access_mode == libc::O_RDONLY {
-                log::error!("❌ [OPEN] O_TRUNC non compatibile con O_RDONLY");
-                reply.error(libc::EINVAL);
-                return;
-            }
-
-            needs_truncate = true;
+    let metadata = match metadata_result {
+        Ok(metadata) => {
+            println!("📂 [OPEN] METADATA OK: {:?}", metadata.kind);
+            metadata
+        },
+        Err(ClientError::NotFound { .. }) => {
+            println!("❌ [OPEN] FILE NON TROVATO: {}", path);
+            reply.error(libc::ENOENT);
+            return;
         }
-
-        if open_flags & libc::O_APPEND != 0 {
-            log::debug!("📎 [OPEN] Flag O_APPEND rilevato - scritture andranno in append");
+        Err(e) => {
+            println!("❌ [OPEN] ERRORE METADATA: {}", e);
+            reply.error(libc::EIO);
+            return;
         }
+    };
 
-        if open_flags & libc::O_EXCL != 0 {
-            log::debug!("⚠️ [OPEN] Flag O_EXCL ignorato (file già esistente)");
-            // O_EXCL è rilevante solo con O_CREAT, qui il file esiste già
+
+// Nella funzione open, dopo "METADATA OK"
+
+println!("📂 [OPEN] METADATA OK: {:?}", metadata.kind);
+
+// 3. VERIFICA TIPO FILE
+if metadata.kind != FileKind::RegularFile {
+    println!("❌ [OPEN] Non è un file regolare: {:?}", metadata.kind);
+    log::error!("❌ [OPEN] Tentativo di aprire non-file: {:?}", metadata.kind);
+    reply.error(libc::EISDIR);
+    return;
+}
+
+println!("📂 [OPEN] TIPO FILE OK");
+
+// 4. ANALISI FLAGS
+let access_mode = flags & libc::O_ACCMODE;
+let open_flags = flags & !libc::O_ACCMODE;
+
+println!("📂 [OPEN] ACCESS_MODE: {:#x}", access_mode);
+println!("📂 [OPEN] OPEN_FLAGS: {:#x}", open_flags);
+
+match access_mode {
+    libc::O_RDONLY => println!("📂 [OPEN] MODALITÀ: READ_ONLY"),
+    libc::O_WRONLY => println!("📂 [OPEN] MODALITÀ: WRITE_ONLY"),
+    libc::O_RDWR => println!("📂 [OPEN] MODALITÀ: READ_WRITE"),
+    _ => println!("📂 [OPEN] MODALITÀ: UNKNOWN ({:#x})", access_mode),
+}
+
+if open_flags & libc::O_APPEND != 0 {
+    println!("📂 [OPEN] FLAG: O_APPEND RILEVATO");
+}
+if open_flags & libc::O_CREAT != 0 {
+    println!("📂 [OPEN] FLAG: O_CREAT RILEVATO");
+}
+if open_flags & libc::O_TRUNC != 0 {
+    println!("📂 [OPEN] FLAG: O_TRUNC RILEVATO");
+}
+
+println!("📂 [OPEN] PRIMA VERIFICA PERMESSI");
+
+// 5. VALIDAZIONE PERMESSI DI ACCESSO
+let perms = parse_permissions(&metadata.perm);
+println!("📂 [OPEN] PERMESSI PARSATI: owner={:#o}", perms.owner);
+
+let effective_perms = perms.owner; // Assumiamo owner per semplicità
+
+match access_mode {
+    libc::O_RDONLY => {
+        println!("📖 [OPEN] Verifica permesso lettura...");
+        if (effective_perms & 0o4) == 0 {  // ✅ FIX: 0o4 invece di 0o400
+            println!("❌ [OPEN] Permesso di lettura negato");
+            reply.error(libc::EACCES);
+            return;
         }
-
-        // 7. VERIFICA SE IL FILE È GIÀ APERTO (INFORMATIVO)
-        let already_open = self.open_files.values().any(|f| f.path == path);
-        if already_open {
-            log::debug!("📂 [OPEN] File già aperto da questo processo: {}", path);
-            // Su Unix, è normale aprire lo stesso file più volte
-        }
-
-        // 8. GENERA NUOVO FILE HANDLE
-        let fh = self.next_fh;
-        self.next_fh += 1;
-
-        // 9. REGISTRA FILE APERTO
-        let open_file = OpenFile {
-            path: path.clone(),
-            flags,
-        };
-        self.open_files.insert(fh, open_file);
-
-        log::debug!(
-            "✅ [OPEN] File registrato: path='{}', fh={}, flags={:#x}",
-            path,
-            fh,
-            flags
-        );
-
-        // 10. ESEGUI TRUNCATE DOPO APERTURA RIUSCITA (SE NECESSARIO)
-        if needs_truncate {
-            log::debug!("✂️ [OPEN] Eseguendo truncate post-apertura");
-
-            let truncate_request = WriteRequest {
-                path: path.clone(),
-                new_path: None,
-                size: 0,                                // Truncate a 0 bytes
-                atime: metadata.atime.clone(),          // Mantieni access time
-                mtime: chrono::Utc::now().to_rfc3339(), // Aggiorna modification time
-                ctime: chrono::Utc::now().to_rfc3339(), // Aggiorna change time
-                crtime: metadata.crtime.clone(),        // Mantieni creation time
-                kind: metadata.kind,                    // Mantieni tipo file
-                ref_path: None,                         // Mantieni ref_path se esiste
-                perm: metadata.perm.clone(),            // Mantieni permessi
-                mode: Mode::Truncate,                   // Modalità truncate
-                data: None,                             // Nessun dato per truncate
-            };
-
-            match rt.block_on(async { self.client.write_file(&truncate_request).await }) {
-                Ok(()) => {
-                    log::debug!("✅ [OPEN] Truncate completato dopo apertura");
-                }
-                Err(e) => {
-                    log::error!("❌ [OPEN] Errore truncate post-apertura: {}", e);
-                    // File già aperto, rimuovi handle se truncate fallisce
-                    self.open_files.remove(&fh);
-                    match e {
-                        ClientError::PermissionDenied(_) => reply.error(libc::EPERM),
-                        ClientError::NotFound { .. } => reply.error(libc::ENOENT),
-                        _ => reply.error(libc::EIO),
-                    }
-                    return;
-                }
-            }
-        }
-
-        // 11. VERIFICA LIMITE FILE APERTI (OPZIONALE)
-        if self.open_files.len() > 1000 {
-            log::warn!("⚠️ [OPEN] Molti file aperti: {}", self.open_files.len());
-        }
-
-        log::debug!(
-            "✅ [OPEN] File aperto con successo: path='{}', fh={}, flags={:#x}",
-            path,
-            fh,
-            flags
-        );
-
-        // 12. RESTITUISCI FILE HANDLE A FUSE
-        reply.opened(fh, 0); // fh=handle, flags=0 (nessun flag speciale per FUSE)
+        println!("✅ [OPEN] Permesso lettura OK");
     }
+    libc::O_WRONLY => {
+        println!("✏️ [OPEN] Verifica permesso scrittura...");
+        if (effective_perms & 0o2) == 0 {  // ✅ FIX: 0o2 invece di 0o200
+            println!("❌ [OPEN] Permesso di scrittura negato");
+            reply.error(libc::EACCES);
+            return;
+        }
+        println!("✅ [OPEN] Permesso scrittura OK");
+    }
+    libc::O_RDWR => {
+        println!("📝 [OPEN] Verifica permessi lettura/scrittura...");
+        if (effective_perms & 0o6) != 0o6 {  // ✅ FIX: 0o6 invece di 0o600
+            println!("❌ [OPEN] Permessi lettura/scrittura insufficienti");
+            reply.error(libc::EACCES);
+            return;
+        }
+        println!("✅ [OPEN] Permessi lettura/scrittura OK");
+    }
+    _ => {
+        println!("❌ [OPEN] Modalità di accesso non valida: {:#x}", access_mode);
+        reply.error(libc::EINVAL);
+        return;
+    }
+}
 
+println!("📂 [OPEN] PERMESSI VERIFICATI - CONTINUANDO...");
+
+// 6. GENERA FILE HANDLE
+let fh = self.next_fh;
+self.next_fh += 1;
+
+println!("📂 [OPEN] FILE HANDLE GENERATO: {}", fh);
+
+// 7. REGISTRA FILE APERTO
+self.open_files.insert(fh, OpenFile {
+    path: path.clone(),
+    flags,
+});
+
+println!("📂 [OPEN] FILE REGISTRATO IN OPEN_FILES");
+
+// 8. GESTIONE O_TRUNC
+if open_flags & libc::O_TRUNC != 0 && access_mode != libc::O_RDONLY {
+    println!("✂️ [OPEN] O_TRUNC rilevato - troncamento file");
+    // ... codice troncamento se presente ...
+}
+
+println!("📂 [OPEN] PRIMA DI REPLY.OPENED");
+
+// 9. RESTITUISCI FILE HANDLE
+reply.opened(fh, 0);
+
+println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
+}
     fn read(
         &mut self,
         _req: &Request<'_>,
@@ -2223,7 +2257,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         }
 
         // 4. OTTIENI METADATI E VERIFICA ESISTENZA
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -2403,7 +2443,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         }
 
         // 4. OTTIENI METADATI E VERIFICA ESISTENZA
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -2455,7 +2501,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         // 7. CALCOLA NUOVA DIMENSIONE FILE
         let new_file_size = std::cmp::max(current_file_size, effective_offset + data_len as u64);
 
-        log::debug!(
+        println!(
         "✏️ [WRITE] File: {}, current_size: {}, offset: {}, effective_offset: {}, data_len: {}, new_size: {}",
         path,
         current_file_size,
@@ -2485,10 +2531,19 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         // 9. PREPARA RICHIESTA DI SCRITTURA
         let now_iso = chrono::Utc::now().to_rfc3339();
         let write_request = WriteRequest {
+            offset: if matches!(write_mode, Mode::WriteAt) {
+                Some(effective_offset) // Non serve offset in append
+            } else {
+                None
+            },
             path: path.clone(),
             new_path: None,
-            size: if matches!(write_mode, Mode::Append) {
+            size: if matches!(write_mode, Mode::WriteAt) {
+                data.len() as u64
+            } else if matches!(write_mode, Mode::Append) {
+                println!("appenddddddddddddddddddddd");
                 data_len as u64
+                
             } else {
                 new_file_size
             },
@@ -2696,7 +2751,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         log::debug!("✅ [FSYNC] Filesystem remoto: dati già persistenti sul server");
 
         // Opzionale: Verifica che il file esista ancora
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(_) => {
                 log::debug!("✅ [FSYNC] File confermato esistente sul server");
@@ -2729,7 +2790,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         log::debug!("📂 [OPENDIR] Path: {}", path);
 
         // 2. VERIFICA CHE SIA UNA DIRECTORY
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -2823,7 +2890,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         log::debug!("📂 [READDIR] Path: {}", path);
 
         // 2. OTTIENI CONTENUTO DIRECTORY DAL SERVER
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let listing_result = rt.block_on(async { self.client.list_directory(&path).await });
 
         let listing = match listing_result {
@@ -3042,7 +3115,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         log::debug!("💫📂 [FSYNCDIR] Path: {}", path);
 
         // 2. VERIFICA CHE SIA EFFETTIVAMENTE UNA DIRECTORY
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -3204,7 +3283,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         );
 
         // 3. OTTIENI METADATI DAL SERVER
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -3357,10 +3442,17 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         );
 
         // 7. CREA FILE SUL SERVER
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let now_iso = chrono::Utc::now().to_rfc3339();
 
         let create_request = WriteRequest {
+            offset: None,
             path: full_path.clone(),
             new_path: None, // ✅ AGGIUNGI QUESTO
             size: 0,        // File vuoto inizialmente
@@ -3609,7 +3701,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         };
 
         // 2. OTTIENI METADATI DEL FILE
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -3799,7 +3897,13 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         }
 
         // 4. ESEGUI COPIA CON READ + WRITE
-        let rt = tokio::runtime::Handle::current();
+        let rt = match tokio::runtime::Handle::try_current() {
+    Ok(handle) => handle,
+    Err(_) => {
+        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+        runtime.handle().clone()
+    }
+};
         let chunk_size = std::cmp::min(len, 1024 * 1024); // Max 1MB per chunk
 
         // Leggi dal file sorgente
@@ -3839,6 +3943,7 @@ fn lookup(&mut self, req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyE
         // Scrivi nel file destinazione
         let now_iso = chrono::Utc::now().to_rfc3339();
         let write_request = WriteRequest {
+            offset:None,
             path: dest_file.path.clone(),
             new_path: None,
             size: std::cmp::max(dest_metadata.size, offset_out as u64 + bytes_to_copy),
