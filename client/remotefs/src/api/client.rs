@@ -1,3 +1,4 @@
+use chrono::offset;
 use libc::remove;
 use serde_json::json;
 
@@ -379,7 +380,7 @@ impl RemoteClient {
         Ok(directory_listing)
     }
 
-    // Leggi contenuto file
+
     // Leggi contenuto file con support per offset e size
     pub async fn read_file(
         &self,
@@ -460,7 +461,7 @@ impl RemoteClient {
         println!("🔍 [DATA] Dimensione dati: {} bytes", data_size);
  let mut metadata_map = serde_json::Map::new();
 
-metadata_map.insert("size".to_string(), json!(write_request.size));
+metadata_map.insert("size".to_string(), json!(data_size));
 metadata_map.insert("perm".to_string(), json!(format_permissions(&write_request.perm)));
 metadata_map.insert("mtime".to_string(), json!(format_datetime(&write_request.mtime)));
 metadata_map.insert("atime".to_string(), json!(format_datetime(&write_request.atime)));
@@ -477,6 +478,10 @@ if let Some(ref new_path) = write_request.new_path {
 // ✅ Aggiungi refPath solo se non è None  
 if let Some(ref ref_path) = write_request.ref_path {
     metadata_map.insert("refPath".to_string(), json!(ref_path));
+}
+
+if let Some(ref offset) = write_request.offset {
+    metadata_map.insert("offset".to_string(), json!(offset));
 }
 
 let metadata_json = serde_json::Value::Object(metadata_map);
