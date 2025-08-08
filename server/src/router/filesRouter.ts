@@ -205,6 +205,20 @@ filesRouter.get(
           withFileTypes: true,
         });
         const entry = entries.find((e) => e.name === path.basename(entryPath))!; // cannot be undefined
+
+        const kind = getNodeType(entry);
+        let refPath;
+        if (kind === FileType.SymLink) {
+          const refPathAbs = await fs.readlink(entryPath);
+
+          if (refPathAbs === USER_PATH) {
+            refPath = "/";
+          } else if (refPathAbs.startsWith(USER_PATH)) {
+            refPath = refPathAbs.slice(USER_PATH.length);
+          } else {
+            refPath = refPathAbs; // outside the namespace
+          }
+        }
         const fsEntry: FileAttr = {
           name: entry.name,
           size: stats.size,
@@ -212,7 +226,8 @@ filesRouter.get(
           mtime: stats.mtime.toISOString(),
           ctime: stats.ctime.toISOString(),
           crtime: stats.birthtime.toISOString(),
-          kind: getNodeType(entry),
+          kind,
+          refPath,
           perm: (stats.mode & 0o777).toString(8), // octal mask to isolate permissions bits
           nlink: stats.nlink,
         };
@@ -231,18 +246,14 @@ filesRouter.get(
           const kind = getNodeType(entry);
           let refPath;
           if (kind === FileType.SymLink) {
-            try {
-              const refPathAbs = await fs.readlink(entryPath);
+            const refPathAbs = await fs.readlink(entryPath);
 
-              if (refPathAbs === USER_PATH) {
-                refPath = "/";
-              } else if (refPathAbs.startsWith(USER_PATH)) {
-                refPath = refPathAbs.slice(USER_PATH.length);
-              } else {
-                refPath = refPathAbs; // outside the namespace
-              }
-            } catch {
-              refPath = undefined; // broken link
+            if (refPathAbs === USER_PATH) {
+              refPath = "/";
+            } else if (refPathAbs.startsWith(USER_PATH)) {
+              refPath = refPathAbs.slice(USER_PATH.length);
+            } else {
+              refPath = refPathAbs; // outside the namespace
             }
           }
 
