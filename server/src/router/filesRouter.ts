@@ -166,7 +166,7 @@ filesRouter.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const filePath = getPath(USER_PATH, req.params.path);
-      const stat = await fs.stat(filePath);
+      const stat = await fs.lstat(filePath);
 
       if (stat.isDirectory()) {
         await fs.rmdir(filePath);
@@ -196,7 +196,7 @@ filesRouter.get(
     try {
       const entryPath = getPath(USER_PATH, req.params.path ?? "");
 
-      const stats = await fs.stat(entryPath);
+      const stats = await fs.lstat(entryPath);
 
       // if the entry is a file, the output will be an array with a single object containing its metadata
       if (!stats.isDirectory()) {
@@ -226,7 +226,7 @@ filesRouter.get(
       const result = await Promise.all(
         entries.map(async (entry) => {
           const entryPath = getPath(dirPath, entry.name);
-          const stats = await fs.stat(entryPath);
+          const stats = await fs.lstat(entryPath);
 
           const kind = getNodeType(entry);
           let refPath;
