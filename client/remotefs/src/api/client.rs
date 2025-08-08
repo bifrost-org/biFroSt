@@ -255,6 +255,7 @@ impl RemoteClient {
                 kind: FileKind::Directory,
                 perm: "755".to_string(),
                 nlink: 2,
+                ref_path: None,
             });
         }
 
