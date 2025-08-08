@@ -50,6 +50,9 @@ pub struct MetaFile {
 
     #[serde(rename = "nlink")]
     pub nlink: u32,
+
+    #[serde(rename = "refPath")]
+    pub ref_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
