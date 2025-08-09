@@ -1,14 +1,21 @@
-use crate::api::client::{ClientError, RemoteClient};
+use crate::api::client::{ ClientError, RemoteClient };
 use crate::api::models::*;
-use crate::fs::attributes::{self, new_directory_attr, new_file_attr};
+use crate::fs::attributes::{ self, new_directory_attr, new_file_attr };
 use fuser::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen,
+    FileAttr,
+    FileType,
+    Filesystem,
+    ReplyAttr,
+    ReplyData,
+    ReplyDirectory,
+    ReplyEntry,
+    ReplyOpen,
     Request,
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::metadata;
-use std::time::{Duration, SystemTime};
+use std::time::{ Duration, SystemTime };
 
 pub struct RemoteFileSystem {
     // Mappature inode <-> path
@@ -53,16 +60,18 @@ struct Permissions {
 
 fn parse_permissions(perm_str: &str) -> Permissions {
     match u32::from_str_radix(perm_str, 8) {
-        Ok(perms) => Permissions {
-            owner: (perms >> 6) & 0o7,
-            group: (perms >> 3) & 0o7,
-            other: perms & 0o7,
-        },
-        Err(_) => Permissions {
-            owner: 0o6, // Default read+write
-            group: 0o4, // Default read
-            other: 0o4, // Default read
-        },
+        Ok(perms) =>
+            Permissions {
+                owner: (perms >> 6) & 0o7,
+                group: (perms >> 3) & 0o7,
+                other: perms & 0o7,
+            },
+        Err(_) =>
+            Permissions {
+                owner: 0o6, // Default read+write
+                group: 0o4, // Default read
+                other: 0o4, // Default read
+            },
     }
 }
 
@@ -74,7 +83,7 @@ fn locks_conflict(typ1: i32, typ2: i32) -> bool {
     // Due write lock sempre in conflitto
     // Write lock e read lock sempre in conflitto
     // Due read lock mai in conflitto
-    (typ1 == libc::F_WRLCK) || (typ2 == libc::F_WRLCK)
+    typ1 == libc::F_WRLCK || typ2 == libc::F_WRLCK
 }
 
 impl RemoteFileSystem {
@@ -124,12 +133,12 @@ impl RemoteFileSystem {
 
     fn get_current_attributes(&mut self, ino: u64, path: &str, reply: ReplyAttr) {
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
 
         // 1. OTTIENI METADATI FRESCHI DAL SERVER
         match rt.block_on(async { self.client.get_file_metadata(path).await }) {
@@ -152,7 +161,7 @@ impl Filesystem for RemoteFileSystem {
     fn init(
         &mut self,
         _req: &Request<'_>,
-        _config: &mut fuser::KernelConfig,
+        _config: &mut fuser::KernelConfig
     ) -> Result<(), libc::c_int> {
         // 1. Configurazione parametri FUSE per filesystem remoto
         let _ = _config.set_max_write(1024 * 1024); // Buffer scrittura 1MB
@@ -160,20 +169,22 @@ impl Filesystem for RemoteFileSystem {
 
         // 2. Verifica connessione al server
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
-        match rt.block_on(async {
-            // Verifica che il server sia raggiungibile
-            match self.client.get_file_metadata("/").await {
-                Ok(_) => Ok(()),
-                Err(ClientError::NotFound { .. }) => Ok(()), // È ok se "/" non esiste come file
-                Err(e) => Err(e),
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
             }
-        }) {
+        };
+        match
+            rt.block_on(async {
+                // Verifica che il server sia raggiungibile
+                match self.client.get_file_metadata("/").await {
+                    Ok(_) => Ok(()),
+                    Err(ClientError::NotFound { .. }) => Ok(()), // È ok se "/" non esiste come file
+                    Err(e) => Err(e),
+                }
+            })
+        {
             Ok(_) => {
                 println!("RemoteFileSystem: connessione al server verificata");
 
@@ -218,34 +229,103 @@ impl Filesystem for RemoteFileSystem {
             }
         };
 
-        println!(
-            "🔍 [LOOKUP] parent: {}, name: '{}', pid: {}",
-            parent,
-            filename,
-            req.pid()
-        );
+        println!("🔍 [LOOKUP] parent: {}, name: '{}', pid: {}", parent, filename, req.pid());
 
         // ✅ FILTRO COMANDI SHELL E AUTOCOMPLETE
         const SHELL_COMMANDS: &[&str] = &[
             // Comandi base Unix
-            "ls", "cat", "touch", "echo", "cp", "mv", "rm", "mkdir", "rmdir", "grep", "find",
-            "head", "tail", "less", "more", "vi", "vim", "nano", "bash", "sh", "zsh", "pwd", "cd",
-            "which", "whereis", "file", "stat", "clear", "history", "exit", "logout", "su", "sudo",
-            "chmod", "chown", "tar", "gzip", "gunzip", "unzip", "zip", "curl", "wget", "ssh",
+            "ls",
+            "cat",
+            "touch",
+            "echo",
+            "cp",
+            "mv",
+            "rm",
+            "mkdir",
+            "rmdir",
+            "grep",
+            "find",
+            "head",
+            "tail",
+            "less",
+            "more",
+            "vi",
+            "vim",
+            "nano",
+            "bash",
+            "sh",
+            "zsh",
+            "pwd",
+            "cd",
+            "which",
+            "whereis",
+            "file",
+            "stat",
+            "clear",
+            "history",
+            "exit",
+            "logout",
+            "su",
+            "sudo",
+            "chmod",
+            "chown",
+            "tar",
+            "gzip",
+            "gunzip",
+            "unzip",
+            "zip",
+            "curl",
+            "wget",
+            "ssh",
             "scp", // Autocomplete comuni
-            "Input", "Output", "input", "output", "test", "Test", "tmp", "Tmp", "bin", "usr",
-            "etc", "var", "home", "root", "opt", "proc", "sys", // Comandi di sistema
-            "ps", "top", "htop", "kill", "killall", "mount", "umount", "df", "du", "free", "uname",
-            "whoami", "id", "groups", "date", "uptime", "w", "who",
+            "Input",
+            "Output",
+            "input",
+            "output",
+            "test",
+            "Test",
+            "tmp",
+            "Tmp",
+            "bin",
+            "usr",
+            "etc",
+            "var",
+            "home",
+            "root",
+            "opt",
+            "proc",
+            "sys", // Comandi di sistema
+            "ps",
+            "top",
+            "htop",
+            "kill",
+            "killall",
+            "mount",
+            "umount",
+            "df",
+            "du",
+            "free",
+            "uname",
+            "whoami",
+            "id",
+            "groups",
+            "date",
+            "uptime",
+            "w",
+            "who",
             // Editor e viewer
-            "emacs", "code", "subl", "atom", "gedit", "kate", "notepad", "view",
+            "emacs",
+            "code",
+            "subl",
+            "atom",
+            "gedit",
+            "kate",
+            "notepad",
+            "view",
         ];
 
         if SHELL_COMMANDS.contains(&filename) {
-            println!(
-                "⚠️ [LOOKUP] Comando/autocomplete shell '{}' - ENOENT",
-                filename
-            );
+            println!("⚠️ [LOOKUP] Comando/autocomplete shell '{}' - ENOENT", filename);
             reply.error(libc::ENOENT);
             return;
         }
@@ -255,13 +335,13 @@ impl Filesystem for RemoteFileSystem {
             println!("🔍 [LOOKUP] Directory corrente '.' richiesta");
             let parent_path = self.get_path(parent).cloned().unwrap_or("/".to_string());
             let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
-            
+                Ok(handle) => handle,
+                Err(_) => {
+                    let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                    runtime.handle().clone()
+                }
+            };
+
             match rt.block_on(async { self.client.get_file_metadata(&parent_path).await }) {
                 Ok(metadata) => {
                     let attr = attributes::from_metadata(parent, &metadata);
@@ -290,14 +370,14 @@ impl Filesystem for RemoteFileSystem {
                 let grandparent_path = if parent_path == "/" {
                     "/".to_string()
                 } else {
-                    std::path::Path::new(&parent_path)
+                    std::path::Path
+                        ::new(&parent_path)
                         .parent()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or("/".to_string())
                 };
 
-                let grandparent_ino = self
-                    .path_to_inode
+                let grandparent_ino = self.path_to_inode
                     .get(&grandparent_path)
                     .copied()
                     .unwrap_or(1);
@@ -313,10 +393,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(path) => path.clone(),
             None => {
-                log::error!(
-                    "❌ [LOOKUP] Directory padre con inode {} non trovata",
-                    parent
-                );
+                log::error!("❌ [LOOKUP] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -333,19 +410,16 @@ impl Filesystem for RemoteFileSystem {
 
         // ✅ VERIFICA CACHE LOCALE PRIMA
         if let Some(&existing_inode) = self.path_to_inode.get(&full_path) {
-            println!(
-                "💾 [LOOKUP] File trovato in cache: inode {}",
-                existing_inode
-            );
+            println!("💾 [LOOKUP] File trovato in cache: inode {}", existing_inode);
 
             // Verifica che i metadati siano ancora validi (opzionale)
             let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+                Ok(handle) => handle,
+                Err(_) => {
+                    let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                    runtime.handle().clone()
+                }
+            };
             match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                 Ok(metadata) => {
                     let attr = attributes::from_metadata(existing_inode, &metadata);
@@ -374,20 +448,23 @@ impl Filesystem for RemoteFileSystem {
         // ✅ NON IN CACHE - CHIEDI AL SERVER
         println!("🌐 [LOOKUP] File non in cache, interrogo server...");
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
-        let metadata_result =
-            rt.block_on(async { self.client.get_file_metadata(&full_path).await });
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
+        let metadata_result = rt.block_on(async {
+            self.client.get_file_metadata(&full_path).await
+        });
 
         match metadata_result {
             Ok(metadata) => {
                 println!(
                     "✅ [LOOKUP] File trovato sul server: '{}' ({:?}, {} bytes)",
-                    full_path, metadata.kind, metadata.size
+                    full_path,
+                    metadata.kind,
+                    metadata.size
                 );
 
                 // Genera nuovo inode e registra
@@ -399,10 +476,7 @@ impl Filesystem for RemoteFileSystem {
                 let ttl = Duration::from_secs(1);
                 reply.entry(&ttl, &attr, 0);
 
-                println!(
-                    "📝 [LOOKUP] Nuovo inode {} registrato per '{}'",
-                    new_inode, full_path
-                );
+                println!("📝 [LOOKUP] Nuovo inode {} registrato per '{}'", new_inode, full_path);
             }
             Err(ClientError::NotFound { .. }) => {
                 println!("❌ [LOOKUP] File '{}' non trovato sul server", full_path);
@@ -441,12 +515,12 @@ impl Filesystem for RemoteFileSystem {
 
         // Chiedi metadati al server
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let metadata_result = rt.block_on(async { self.client.get_file_metadata(&path).await });
 
         match metadata_result {
@@ -483,12 +557,18 @@ impl Filesystem for RemoteFileSystem {
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
         flags: Option<u32>,
-        reply: ReplyAttr,
+        reply: ReplyAttr
     ) {
         log::debug!(
-        "🔧 [SETATTR] ino: {}, mode: {:?}, uid: {:?}, gid: {:?}, size: {:?}, fh: {:?}, flags: {:?}",
-        ino, mode, uid, gid, size, fh, flags
-    );
+            "🔧 [SETATTR] ino: {}, mode: {:?}, uid: {:?}, gid: {:?}, size: {:?}, fh: {:?}, flags: {:?}",
+            ino,
+            mode,
+            uid,
+            gid,
+            size,
+            fh,
+            flags
+        );
 
         // 1. CONTROLLI PRELIMINARI
 
@@ -512,32 +592,29 @@ impl Filesystem for RemoteFileSystem {
         log::debug!("🔧 [SETATTR] Path: {}", path);
 
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
 
         // 2. OTTIENI METADATI ATTUALI
-        let current_metadata =
-            match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
-                Ok(metadata) => metadata,
-                Err(ClientError::NotFound { .. }) => {
-                    log::error!("❌ [SETATTR] File non trovato sul server: {}", path);
-                    reply.error(libc::ENOENT);
-                    return;
-                }
-                Err(e) => {
-                    log::error!(
-                        "❌ [SETATTR] Errore recupero metadati per '{}': {}",
-                        path,
-                        e
-                    );
-                    reply.error(libc::EIO);
-                    return;
-                }
-            };
+        let current_metadata = match
+            rt.block_on(async { self.client.get_file_metadata(&path).await })
+        {
+            Ok(metadata) => metadata,
+            Err(ClientError::NotFound { .. }) => {
+                log::error!("❌ [SETATTR] File non trovato sul server: {}", path);
+                reply.error(libc::ENOENT);
+                return;
+            }
+            Err(e) => {
+                log::error!("❌ [SETATTR] Errore recupero metadati per '{}': {}", path, e);
+                reply.error(libc::EIO);
+                return;
+            }
+        };
 
         log::debug!("🔍 [SETATTR] Metadati attuali recuperati per: {}", path);
 
@@ -545,10 +622,7 @@ impl Filesystem for RemoteFileSystem {
 
         // A) TRUNCATE/RESIZE (modifica dimensione file)
         if let Some(new_size) = size {
-            log::debug!(
-                "📏 [SETATTR] Richiesta modifica dimensione a {} bytes",
-                new_size
-            );
+            log::debug!("📏 [SETATTR] Richiesta modifica dimensione a {} bytes", new_size);
 
             // Verifica che sia un file regolare (non directory)
             match current_metadata.kind {
@@ -563,11 +637,7 @@ impl Filesystem for RemoteFileSystem {
             }
 
             let current_size = current_metadata.size;
-            log::debug!(
-                "📏 [SETATTR] Dimensione attuale: {} → nuova: {}",
-                current_size,
-                new_size
-            );
+            log::debug!("📏 [SETATTR] Dimensione attuale: {} → nuova: {}", current_size, new_size);
 
             // Se è la stessa dimensione, non fare nulla
             if new_size == current_size {
@@ -582,10 +652,9 @@ impl Filesystem for RemoteFileSystem {
             let operation_result = if new_size < current_size {
                 // TRUNCATE (riduzione)
                 log::debug!("✂️ [SETATTR] Operazione: TRUNCATE (riduzione)");
-                rt.block_on(async {
-                    self.client
-                        .write_file(&WriteRequest {
-                            offset:None,
+                rt.block_on(async { self.client.write_file(
+                        &(WriteRequest {
+                            offset: None,
                             path: path.clone(),
                             new_path: None,
                             size: new_size,
@@ -599,17 +668,15 @@ impl Filesystem for RemoteFileSystem {
                             mode: Mode::Truncate,
                             data: None,
                         })
-                        .await
-                })
+                    ).await })
             } else {
                 // EXTEND (espansione)
                 log::debug!("📈 [SETATTR] Operazione: EXTEND (espansione)");
                 let padding_size = new_size - current_size;
                 let padding_data = vec![0u8; padding_size as usize];
 
-                rt.block_on(async {
-                    self.client
-                        .write_file(&WriteRequest {
+                rt.block_on(async { self.client.write_file(
+                        &(WriteRequest {
                             offset: None,
                             path: path.clone(),
                             new_path: None,
@@ -624,8 +691,7 @@ impl Filesystem for RemoteFileSystem {
                             mode: Mode::Append, // ← Append i null bytes alla fine
                             data: Some(padding_data),
                         })
-                        .await
-                })
+                    ).await })
             };
 
             // ✅ GESTISCI IL RISULTATO DELL'OPERAZIONE
@@ -654,10 +720,7 @@ impl Filesystem for RemoteFileSystem {
 
         // B) CHMOD (cambio permessi)
         if let Some(new_mode) = mode {
-            log::debug!(
-                "🔒 [SETATTR] Richiesta modifica permessi: {:o}",
-                new_mode & 0o777
-            );
+            log::debug!("🔒 [SETATTR] Richiesta modifica permessi: {:o}", new_mode & 0o777);
 
             let new_permissions = format!("{:o}", new_mode & 0o777);
             let now_iso = chrono::Utc::now().to_rfc3339();
@@ -669,13 +732,13 @@ impl Filesystem for RemoteFileSystem {
                 size: current_metadata.size, // Mantieni dimensione
                 atime: current_metadata.atime.clone(), // Mantieni access time
                 mtime: current_metadata.mtime.clone(), // Mantieni modification time
-                ctime: now_iso,              // Aggiorna change time (metadati cambiati)
+                ctime: now_iso, // Aggiorna change time (metadati cambiati)
                 crtime: current_metadata.crtime.clone(), // Mantieni creation time
                 kind: current_metadata.kind, // Mantieni tipo file
                 ref_path: None,
                 perm: new_permissions, // Nuovi permessi
-                mode: Mode::Write,     // Modalità metadata-only
-                data: None,            // Nessun contenuto, solo metadati
+                mode: Mode::Write, // Modalità metadata-only
+                data: None, // Nessun contenuto, solo metadati
             };
 
             match rt.block_on(async { self.client.write_file(&chmod_request).await }) {
@@ -722,105 +785,66 @@ impl Filesystem for RemoteFileSystem {
         self.get_current_attributes(ino, &path, reply);
     }
 
-    //modificare perchè vuole il path di quello a cui punta, non i dati come ho fattio io
-    fn readlink(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyData) {
-        log::debug!("🔗 [READLINK] ino: {}", ino);
+fn readlink(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyData) {
+    log::debug!("🔗 [READLINK] ino: {}", ino);
 
-        // 1. VALIDAZIONE INODE
-        let path = match self.inode_to_path.get(&ino) {
-            Some(p) => p.clone(),
-            None => {
-                log::error!("❌ [READLINK] Inode {} non trovato", ino);
-                reply.error(libc::ENOENT);
-                return;
-            }
-        };
+    let path = match self.inode_to_path.get(&ino) {
+        Some(p) => p.clone(),
+        None => {
+            log::error!("❌ [READLINK] Inode {} non trovato", ino);
+            reply.error(libc::ENOENT);
+            return;
+        }
+    };
 
-        log::debug!("🔗 [READLINK] Path: {}", path);
+    let rt = match tokio::runtime::Handle::try_current() {
+        Ok(handle) => handle,
+        Err(_) => {
+            let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+            runtime.handle().clone()
+        }
+    };
 
-        // 2. OTTIENI METADATI DAL SERVER
-        let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
-        let metadata_result = rt.block_on(async { self.client.get_file_metadata(&path).await });
-
-        match metadata_result {
-            Ok(metadata) => {
-                // 3. VERIFICA CHE SIA UN LINK SIMBOLICO
-                match metadata.kind {
-                    FileKind::Symlink => {
-                        log::debug!("✅ [READLINK] Confermato symlink: {}", path);
-                    }
-                    FileKind::Directory => {
-                        log::warn!("⚠️ [READLINK] '{}' è una directory, non un symlink", path);
-                        reply.error(libc::EINVAL);
-                        return;
-                    }
-                    FileKind::RegularFile => {
-                        log::warn!(
-                            "⚠️ [READLINK] '{}' è un file regolare, non un symlink",
-                            path
-                        );
-                        reply.error(libc::EINVAL);
-                        return;
-                    }
-                    _ => {
-                        log::warn!(
-                            "⚠️ [READLINK] '{}' non è un link simbolico (tipo: {:?})",
-                            path,
-                            metadata.kind
-                        );
-                        reply.error(libc::EINVAL);
-                        return;
-                    }
+    match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
+        Ok(metadata) => {
+            match (metadata.kind, &metadata.ref_path) {
+                (FileKind::Symlink, Some(target)) if !target.is_empty() => {
+                    log::debug!("🔗 [READLINK] Target originale: '{}'", target);
+                    
+                    // ✅ FIX: Converti path assoluti in relativi
+                    let resolved_target = if target.starts_with('/') {
+                        // Path assoluto → rimuovi la / iniziale per renderlo relativo
+                        let relative_target = &target[1..];
+                        log::debug!("🔗 [READLINK] Convertito path assoluto '{}' in relativo '{}'", target, relative_target);
+                        relative_target
+                    } else {
+                        // Path già relativo → usa così com'è
+                        target.as_str()
+                    };
+                    
+                    log::debug!("✅ [READLINK] Target finale: '{}'", resolved_target);
+                    reply.data(resolved_target.as_bytes());
                 }
-
-                // 4. OTTIENI IL TARGET DEL SYMLINK
-                // Assuming the server provides symlink target in a field like `target` or `symlink_target`
-                // You'll need to check what field your metadata struct uses for symlink targets
-
-                // Option 1: Se hai un campo `target` in metadata
-                if let Some(target) = self.inode_to_path.get(&ino) {
-                    log::debug!("✅ [READLINK] Symlink '{}' → '{}'", path, target);
-                    reply.data(target.as_bytes());
-                    return;
+                (FileKind::Symlink, _) => {
+                    log::error!("❌ [READLINK] Symlink senza target valido: {}", path);
+                    reply.error(libc::EIO);
                 }
-
-                // Option 4: Se devi fare una richiesta separata per ottenere il target
-                match rt.block_on(async { self.client.read_file(&path, None, None).await }) {
-                    Ok(target) => {
-                        log::debug!("✅ [READLINK] Symlink '{}' → '{:?}'", path, target.data);
-                        reply.data(&target.data)
-                    }
-                    Err(ClientError::NotFound { .. }) => {
-                        log::error!("❌ [READLINK] Target del symlink '{}' non trovato", path);
-                        reply.error(libc::EIO);
-                    }
-                    Err(e) => {
-                        log::error!(
-                            "❌ [READLINK] Errore lettura target symlink '{}': {}",
-                            path,
-                            e
-                        );
-                        reply.error(libc::EIO);
-                    }
+                (file_type, _) => {
+                    log::warn!("⚠️ [READLINK] '{}' non è un symlink: {:?}", path, file_type);
+                    reply.error(libc::EINVAL);
                 }
-            }
-            Err(ClientError::NotFound { .. }) => {
-                log::error!("❌ [READLINK] Symlink '{}' non trovato sul server", path);
-                reply.error(libc::ENOENT);
-            }
-            Err(e) => {
-                log::error!("❌ [READLINK] Errore server per '{}': {}", path, e);
-                reply.error(libc::EIO);
             }
         }
+        Err(ClientError::NotFound { .. }) => {
+            log::error!("❌ [READLINK] File non trovato: {}", path);
+            reply.error(libc::ENOENT);
+        }
+        Err(e) => {
+            log::error!("❌ [READLINK] Errore server: {}", e);
+            reply.error(libc::EIO);
+        }
     }
-
+}
     fn mknod(
         &mut self,
         _req: &Request<'_>,
@@ -829,7 +853,7 @@ impl Filesystem for RemoteFileSystem {
         mode: u32,
         umask: u32,
         rdev: u32,
-        reply: ReplyEntry,
+        reply: ReplyEntry
     ) {
         // 1. VALIDAZIONE INPUT
         let filename = match name.to_str() {
@@ -845,10 +869,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                log::error!(
-                    "❌ [MKNOD] Directory padre con inode {} non trovata",
-                    parent
-                );
+                log::error!("❌ [MKNOD] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -878,12 +899,14 @@ impl Filesystem for RemoteFileSystem {
                 // FILE REGOLARE - Supportato
                 log::debug!("📄 [MKNOD] Creazione file regolare: {}", full_path);
                 let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+                    Ok(handle) => handle,
+                    Err(_) => {
+                        let runtime = tokio::runtime::Runtime
+                            ::new()
+                            .expect("Failed to create runtime");
+                        runtime.handle().clone()
+                    }
+                };
 
                 let write_request = WriteRequest {
                     offset: None,
@@ -895,14 +918,15 @@ impl Filesystem for RemoteFileSystem {
                     ctime: chrono::Utc::now().to_rfc3339(),
                     crtime: chrono::Utc::now().to_rfc3339(),
                     kind: FileKind::RegularFile, // ✅ Specifica tipo file
-                    ref_path: None,              // ✅ Non è un link
-                    perm: ((mode & 0o777) & !(umask & 0o777)).to_string(), // ✅ NON permissions_octal
-                    mode: Mode::Write,                                     // ✅ Aggiungi mode
-                    data: Some(Vec::new()),                                // ✅ File vuoto
+                    ref_path: None, // ✅ Non è un link
+                    perm: (mode & 0o777 & !(umask & 0o777)).to_string(), // ✅ NON permissions_octal
+                    mode: Mode::Write, // ✅ Aggiungi mode
+                    data: Some(Vec::new()), // ✅ File vuoto
                 };
 
-                let create_result =
-                    rt.block_on(async { self.client.write_file(&write_request).await });
+                let create_result = rt.block_on(async {
+                    self.client.write_file(&write_request).await
+                });
 
                 // 6. GESTISCI RISULTATO CREAZIONE
                 match create_result {
@@ -914,8 +938,9 @@ impl Filesystem for RemoteFileSystem {
                         self.register_inode(new_inode, full_path.clone());
 
                         // Ottieni metadati dal server per conferma
-                        let metadata_result =
-                            rt.block_on(async { self.client.get_file_metadata(&full_path).await });
+                        let metadata_result = rt.block_on(async {
+                            self.client.get_file_metadata(&full_path).await
+                        });
 
                         match metadata_result {
                             Ok(metadata) => {
@@ -932,7 +957,7 @@ impl Filesystem for RemoteFileSystem {
                                     e
                                 );
                                 // File creato ma metadati non disponibili - usa attributi base
-                                let effective_perms = (mode & 0o777) & !(umask & 0o777);
+                                let effective_perms = mode & 0o777 & !(umask & 0o777);
                                 let attr = new_file_attr(new_inode, 0, effective_perms);
                                 let ttl = Duration::from_secs(1);
                                 reply.entry(&ttl, &attr, 0);
@@ -991,7 +1016,7 @@ impl Filesystem for RemoteFileSystem {
         name: &OsStr,
         mode: u32,
         umask: u32,
-        reply: ReplyEntry,
+        reply: ReplyEntry
     ) {
         println!("MKDIRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR");
         log::debug!(
@@ -1016,10 +1041,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                log::error!(
-                    "❌ [MKDIR] Directory padre con inode {} non trovata",
-                    parent
-                );
+                log::error!("❌ [MKDIR] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1042,7 +1064,7 @@ impl Filesystem for RemoteFileSystem {
         }
 
         // 5. CALCOLA PERMESSI EFFETTIVI
-        let effective_permissions = (mode & 0o777) & !(umask & 0o777);
+        let effective_permissions = mode & 0o777 & !(umask & 0o777);
         let permissions_octal = format!("{:o}", effective_permissions);
 
         log::debug!(
@@ -1054,18 +1076,14 @@ impl Filesystem for RemoteFileSystem {
 
         // 6. CREA DIRECTORY SUL SERVER
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};  
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         println!("Credo la directory: {}", full_path);
-        let create_result = rt.block_on(async {
-            self.client
-                .create_directory(&full_path)
-                .await
-        });
+        let create_result = rt.block_on(async { self.client.create_directory(&full_path).await });
 
         match create_result {
             Ok(()) => {
@@ -1076,8 +1094,9 @@ impl Filesystem for RemoteFileSystem {
                 self.register_inode(new_inode, full_path.clone());
 
                 // 8. OTTIENI METADATI DAL SERVER PER CONFERMA
-                let metadata_result =
-                    rt.block_on(async { self.client.get_file_metadata(&full_path).await });
+                let metadata_result = rt.block_on(async {
+                    self.client.get_file_metadata(&full_path).await
+                });
 
                 match metadata_result {
                     Ok(metadata) => {
@@ -1124,10 +1143,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                log::error!(
-                    "❌ [UNLINK] Directory padre con inode {} non trovata",
-                    parent
-                );
+                log::error!("❌ [UNLINK] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1149,12 +1165,14 @@ impl Filesystem for RemoteFileSystem {
                 log::warn!("⚠️ [UNLINK] File non trovato nella cache: {}", full_path);
                 // Potrebbe esistere sul server ma non in cache - verifica
                 let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+                    Ok(handle) => handle,
+                    Err(_) => {
+                        let runtime = tokio::runtime::Runtime
+                            ::new()
+                            .expect("Failed to create runtime");
+                        runtime.handle().clone()
+                    }
+                };
                 match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                     Ok(_) => {
                         log::debug!("📝 [UNLINK] File esiste sul server ma non in cache");
@@ -1177,19 +1195,16 @@ impl Filesystem for RemoteFileSystem {
         // 5. VERIFICA CHE SIA UN FILE (NON DIRECTORY)
         if file_inode != 0 {
             let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+                Ok(handle) => handle,
+                Err(_) => {
+                    let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                    runtime.handle().clone()
+                }
+            };
             match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                 Ok(metadata) => {
                     if metadata.kind == FileKind::Directory {
-                        log::warn!(
-                            "⚠️ [UNLINK] Tentativo di unlink su directory: {}",
-                            full_path
-                        );
+                        log::warn!("⚠️ [UNLINK] Tentativo di unlink su directory: {}", full_path);
                         reply.error(libc::EISDIR);
                         return;
                     }
@@ -1207,10 +1222,7 @@ impl Filesystem for RemoteFileSystem {
         }
 
         // 6. VERIFICA CHE IL FILE NON SIA APERTO
-        let is_file_open = self
-            .open_files
-            .values()
-            .any(|open_file| open_file.path == full_path);
+        let is_file_open = self.open_files.values().any(|open_file| open_file.path == full_path);
         if is_file_open {
             log::warn!("⚠️ [UNLINK] File ancora aperto: {}", full_path);
             // Su Unix, il file viene eliminato ma rimane accessibile ai processi che lo hanno aperto
@@ -1221,12 +1233,12 @@ impl Filesystem for RemoteFileSystem {
 
         // 7. ELIMINA FILE DAL SERVER
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let delete_result = rt.block_on(async { self.client.delete(&full_path).await });
 
         match delete_result {
@@ -1272,10 +1284,7 @@ impl Filesystem for RemoteFileSystem {
 
         // 2. PROTEZIONE DIRECTORY SPECIALI
         if dirname == "." || dirname == ".." {
-            log::warn!(
-                "⚠️ [RMDIR] Tentativo di eliminare directory speciale: {}",
-                dirname
-            );
+            log::warn!("⚠️ [RMDIR] Tentativo di eliminare directory speciale: {}", dirname);
             reply.error(libc::EINVAL);
             return;
         }
@@ -1284,10 +1293,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                log::error!(
-                    "❌ [RMDIR] Directory padre con inode {} non trovata",
-                    parent
-                );
+                log::error!("❌ [RMDIR] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1313,18 +1319,17 @@ impl Filesystem for RemoteFileSystem {
         let dir_inode = match self.path_to_inode.get(&full_path) {
             Some(&inode) => inode,
             None => {
-                log::warn!(
-                    "⚠️ [RMDIR] Directory non trovata nella cache: {}",
-                    full_path
-                );
+                log::warn!("⚠️ [RMDIR] Directory non trovata nella cache: {}", full_path);
                 // Potrebbe esistere sul server ma non in cache - verifica
                 let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+                    Ok(handle) => handle,
+                    Err(_) => {
+                        let runtime = tokio::runtime::Runtime
+                            ::new()
+                            .expect("Failed to create runtime");
+                        runtime.handle().clone()
+                    }
+                };
                 match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                     Ok(metadata) => {
                         if metadata.kind != FileKind::Directory {
@@ -1352,12 +1357,12 @@ impl Filesystem for RemoteFileSystem {
         // 7. VERIFICA CHE SIA UNA DIRECTORY (NON FILE)
         if dir_inode != 0 {
             let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+                Ok(handle) => handle,
+                Err(_) => {
+                    let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                    runtime.handle().clone()
+                }
+            };
             match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                 Ok(metadata) => {
                     if metadata.kind != FileKind::Directory {
@@ -1380,12 +1385,12 @@ impl Filesystem for RemoteFileSystem {
 
         // 8. VERIFICA CHE LA DIRECTORY SIA VUOTA
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         match rt.block_on(async { self.client.list_directory(&full_path).await }) {
             Ok(listing) => {
                 if !listing.files.is_empty() {
@@ -1426,10 +1431,7 @@ impl Filesystem for RemoteFileSystem {
                 log::debug!("✅ [RMDIR] Operazione completata per: {}", full_path);
             }
             Err(ClientError::NotFound { .. }) => {
-                log::warn!(
-                    "⚠️ [RMDIR] Directory già eliminata dal server: {}",
-                    full_path
-                );
+                log::warn!("⚠️ [RMDIR] Directory già eliminata dal server: {}", full_path);
                 // Rimuovi comunque dalla cache locale se presente
                 if dir_inode != 0 {
                     self.unregister_inode(dir_inode);
@@ -1449,14 +1451,9 @@ impl Filesystem for RemoteFileSystem {
         parent: u64,
         name: &OsStr,
         link: &std::path::Path,
-        reply: ReplyEntry,
+        reply: ReplyEntry
     ) {
-        log::debug!(
-            "🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}",
-            parent,
-            name,
-            link
-        );
+        log::debug!("🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}", parent, name, link);
 
         // 1. VALIDAZIONE INPUT
         let link_name = match name.to_str() {
@@ -1481,10 +1478,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                log::error!(
-                    "❌ [SYMLINK] Directory padre con inode {} non trovata",
-                    parent
-                );
+                log::error!("❌ [SYMLINK] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1497,11 +1491,7 @@ impl Filesystem for RemoteFileSystem {
             format!("{}/{}", parent_path, link_name)
         };
 
-        log::debug!(
-            "🔗 [SYMLINK] Creando symlink: '{}' → '{}'",
-            symlink_path,
-            target_path
-        );
+        log::debug!("🔗 [SYMLINK] Creando symlink: '{}' → '{}'", symlink_path, target_path);
 
         // 4. VERIFICA CHE IL SYMLINK NON ESISTA GIÀ
         if self.path_to_inode.contains_key(&symlink_path) {
@@ -1512,14 +1502,14 @@ impl Filesystem for RemoteFileSystem {
 
         // 5. CREA SYMLINK SUL SERVER
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let now_iso = chrono::Utc::now().to_rfc3339();
-
+        //non ricordo se è corretto
         let symlink_request = WriteRequest {
             offset: None,
             path: symlink_path.clone(),
@@ -1531,7 +1521,7 @@ impl Filesystem for RemoteFileSystem {
             crtime: now_iso,
             kind: FileKind::Symlink,
             ref_path: Some(target_path.to_string()), // ← Target del symlink
-            perm: "777".to_string(),                 // Symlink hanno sempre permessi 777
+            perm: "777".to_string(), // Symlink hanno sempre permessi 777
             mode: Mode::Write,
             data: None, // Target come contenuto
         };
@@ -1545,8 +1535,9 @@ impl Filesystem for RemoteFileSystem {
                 self.register_inode(new_inode, symlink_path.clone());
 
                 // 7. OTTIENI METADATI DAL SERVER PER CONFERMA
-                let metadata_result =
-                    rt.block_on(async { self.client.get_file_metadata(&symlink_path).await });
+                let metadata_result = rt.block_on(async {
+                    self.client.get_file_metadata(&symlink_path).await
+                });
 
                 match metadata_result {
                     Ok(metadata) => {
@@ -1581,7 +1572,7 @@ impl Filesystem for RemoteFileSystem {
         newparent: u64,
         newname: &OsStr,
         flags: u32,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
         log::debug!(
             "📝 [RENAME] parent: {}, name: {:?}, newparent: {}, newname: {:?}, flags: {}",
@@ -1613,10 +1604,7 @@ impl Filesystem for RemoteFileSystem {
 
         // 2. GESTIONE FLAGS (per ora ignoriamo, ma logghiamo)
         if flags != 0 {
-            log::warn!(
-                "⚠️ [RENAME] Flags non supportati: {}, procedendo comunque",
-                flags
-            );
+            log::warn!("⚠️ [RENAME] Flags non supportati: {}, procedendo comunque", flags);
         }
 
         // 3. OTTIENI PATH DELLA DIRECTORY PADRE ORIGINALE
@@ -1667,10 +1655,11 @@ impl Filesystem for RemoteFileSystem {
             return;
         }
 
-        if old_filename == "."
-            || old_filename == ".."
-            || new_filename == "."
-            || new_filename == ".."
+        if
+            old_filename == "." ||
+            old_filename == ".." ||
+            new_filename == "." ||
+            new_filename == ".."
         {
             log::warn!("⚠️ [RENAME] Tentativo di rinominare directory speciali");
             reply.error(libc::EINVAL);
@@ -1684,36 +1673,34 @@ impl Filesystem for RemoteFileSystem {
         }
 
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
 
         // 7. OTTIENI METADATI DEL FILE ORIGINALE
-        let old_metadata =
-            match rt.block_on(async { self.client.get_file_metadata(&old_path).await }) {
-                Ok(metadata) => metadata,
-                Err(ClientError::NotFound { .. }) => {
-                    log::error!("❌ [RENAME] File originale non trovato: {}", old_path);
-                    reply.error(libc::ENOENT);
-                    return;
-                }
-                Err(e) => {
-                    log::error!("❌ [RENAME] Errore verifica file originale: {}", e);
-                    reply.error(libc::EIO);
-                    return;
-                }
-            };
+        let old_metadata = match
+            rt.block_on(async { self.client.get_file_metadata(&old_path).await })
+        {
+            Ok(metadata) => metadata,
+            Err(ClientError::NotFound { .. }) => {
+                log::error!("❌ [RENAME] File originale non trovato: {}", old_path);
+                reply.error(libc::ENOENT);
+                return;
+            }
+            Err(e) => {
+                log::error!("❌ [RENAME] Errore verifica file originale: {}", e);
+                reply.error(libc::EIO);
+                return;
+            }
+        };
 
         // 8. VERIFICA CHE IL FILE NON SIA APERTO
         let file_inode = self.path_to_inode.get(&old_path).copied().unwrap_or(0);
         if file_inode != 0 {
-            let is_file_open = self
-                .open_files
-                .values()
-                .any(|open_file| open_file.path == old_path);
+            let is_file_open = self.open_files.values().any(|open_file| open_file.path == old_path);
             if is_file_open {
                 log::warn!("⚠️ [RENAME] File ancora aperto: {}", old_path);
                 reply.error(libc::EBUSY);
@@ -1722,8 +1709,10 @@ impl Filesystem for RemoteFileSystem {
         }
 
         // 9. VERIFICA DESTINAZIONE (se esiste, deve essere compatibile)
-        if let Ok(new_metadata) =
-            rt.block_on(async { self.client.get_file_metadata(&new_path).await })
+        if
+            let Ok(new_metadata) = rt.block_on(async {
+                self.client.get_file_metadata(&new_path).await
+            })
         {
             log::debug!("📝 [RENAME] Destinazione esiste, verificando sovrascrittura");
 
@@ -1770,13 +1759,13 @@ impl Filesystem for RemoteFileSystem {
             size: old_metadata.size, // ✅ Mantieni dimensione originale
             atime: old_metadata.atime.clone(), // ✅ Mantieni access time
             mtime: old_metadata.mtime.clone(), // ✅ Mantieni modification time
-            ctime: now_iso.clone(),  // ✅ Aggiorna change time
+            ctime: now_iso.clone(), // ✅ Aggiorna change time
             crtime: old_metadata.crtime.clone(), // ✅ Mantieni creation time
             kind: old_metadata.kind, // ✅ Mantieni tipo file
-            ref_path: None,          // ✅ Non è symlink operation
+            ref_path: None, // ✅ Non è symlink operation
             perm: old_metadata.perm.clone(), // ✅ Mantieni permessi
-            mode: Mode::Write,       // ✅ Specifica operazione rename
-            data: None,              // ✅ Nessun dato da trasferire
+            mode: Mode::Write, // ✅ Specifica operazione rename
+            data: None, // ✅ Nessun dato da trasferire
         };
 
         let rename_result = rt.block_on(async { self.client.write_file(&rename_request).await });
@@ -1811,17 +1800,10 @@ impl Filesystem for RemoteFileSystem {
                 }
 
                 reply.ok();
-                log::debug!(
-                    "✅ [RENAME] Operazione completata: '{}' → '{}'",
-                    old_path,
-                    new_path
-                );
+                log::debug!("✅ [RENAME] Operazione completata: '{}' → '{}'", old_path, new_path);
             }
             Err(ClientError::NotFound { .. }) => {
-                log::error!(
-                    "❌ [RENAME] File originale non trovato sul server: {}",
-                    old_path
-                );
+                log::error!("❌ [RENAME] File originale non trovato sul server: {}", old_path);
                 reply.error(libc::ENOENT);
             }
             Err(e) => {
@@ -1837,14 +1819,9 @@ impl Filesystem for RemoteFileSystem {
         ino: u64,
         newparent: u64,
         newname: &OsStr,
-        reply: ReplyEntry,
+        reply: ReplyEntry
     ) {
-        log::debug!(
-            "🔗 [LINK] ino: {}, newparent: {}, newname: {:?}",
-            ino,
-            newparent,
-            newname
-        );
+        log::debug!("🔗 [LINK] ino: {}, newparent: {}, newname: {:?}", ino, newparent, newname);
 
         // 1. VALIDAZIONE INPUT
         let link_name = match newname.to_str() {
@@ -1870,10 +1847,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(newparent) {
             Some(p) => p.clone(),
             None => {
-                log::error!(
-                    "❌ [LINK] Directory padre con inode {} non trovata",
-                    newparent
-                );
+                log::error!("❌ [LINK] Directory padre con inode {} non trovata", newparent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1886,11 +1860,7 @@ impl Filesystem for RemoteFileSystem {
             format!("{}/{}", parent_path, link_name)
         };
 
-        log::debug!(
-            "🔗 [LINK] Creando hard link: '{}' → '{}'",
-            link_path,
-            source_path
-        );
+        log::debug!("🔗 [LINK] Creando hard link: '{}' → '{}'", link_path, source_path);
 
         // 5. VERIFICA CHE IL LINK NON ESISTA GIÀ
         if self.path_to_inode.contains_key(&link_path) {
@@ -1900,28 +1870,29 @@ impl Filesystem for RemoteFileSystem {
         }
 
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
 
         // 6. OTTIENI METADATI DEL FILE SORGENTE
-        let source_metadata =
-            match rt.block_on(async { self.client.get_file_metadata(&source_path).await }) {
-                Ok(metadata) => metadata,
-                Err(ClientError::NotFound { .. }) => {
-                    log::error!("❌ [LINK] File sorgente non trovato: {}", source_path);
-                    reply.error(libc::ENOENT);
-                    return;
-                }
-                Err(e) => {
-                    log::error!("❌ [LINK] Errore verifica file sorgente: {}", e);
-                    reply.error(libc::EIO);
-                    return;
-                }
-            };
+        let source_metadata = match
+            rt.block_on(async { self.client.get_file_metadata(&source_path).await })
+        {
+            Ok(metadata) => metadata,
+            Err(ClientError::NotFound { .. }) => {
+                log::error!("❌ [LINK] File sorgente non trovato: {}", source_path);
+                reply.error(libc::ENOENT);
+                return;
+            }
+            Err(e) => {
+                log::error!("❌ [LINK] Errore verifica file sorgente: {}", e);
+                reply.error(libc::EIO);
+                return;
+            }
+        };
 
         // 7. VERIFICA CHE SIA UN FILE REGOLARE (NON DIRECTORY O SYMLINK)
         match source_metadata.kind {
@@ -1929,18 +1900,12 @@ impl Filesystem for RemoteFileSystem {
                 log::debug!("✅ [LINK] File sorgente è un file regolare");
             }
             FileKind::Directory => {
-                log::warn!(
-                    "⚠️ [LINK] Impossibile creare hard link su directory: {}",
-                    source_path
-                );
+                log::warn!("⚠️ [LINK] Impossibile creare hard link su directory: {}", source_path);
                 reply.error(libc::EPERM);
                 return;
             }
             FileKind::Symlink => {
-                log::warn!(
-                    "⚠️ [LINK] Hard link su symlink non supportato: {}",
-                    source_path
-                );
+                log::warn!("⚠️ [LINK] Hard link su symlink non supportato: {}", source_path);
                 reply.error(libc::EPERM);
                 return;
             }
@@ -1964,13 +1929,13 @@ impl Filesystem for RemoteFileSystem {
             size: source_metadata.size, // ✅ Stessa dimensione del file originale
             atime: source_metadata.atime.clone(), // ✅ Mantieni access time
             mtime: source_metadata.mtime.clone(), // ✅ Mantieni modification time
-            ctime: now_iso.clone(),     // ✅ Aggiorna change time (nuovo link)
+            ctime: now_iso.clone(), // ✅ Aggiorna change time (nuovo link)
             crtime: source_metadata.crtime.clone(), // ✅ Mantieni creation time
-            kind: FileKind::Hardlink,   // ✅ Stesso tipo file
+            kind: FileKind::Hardlink, // ✅ Stesso tipo file
             ref_path: Some(source_path.clone()), // ✅ Riferimento al file originale
             perm: source_metadata.perm.clone(), // ✅ Stessi permessi
-            mode: Mode::Write,          // ✅ Modalità hard link
-            data: None,                 // ✅ Nessun contenuto, solo link
+            mode: Mode::Write, // ✅ Modalità hard link
+            data: None, // ✅ Nessun contenuto, solo link
         };
 
         match rt.block_on(async { self.client.write_file(&link_request).await }) {
@@ -1982,22 +1947,19 @@ impl Filesystem for RemoteFileSystem {
                 self.inode_to_path.insert(ino, link_path.clone()); // ✅ Aggiorna mapping inode -> path più recente
                 self.path_to_inode.insert(link_path.clone(), ino); // ✅ Aggiungi nuovo path -> inode
 
-                log::debug!(
-                    "🔗 [LINK] Inode {} ora mappato anche a '{}'",
-                    ino,
-                    link_path
-                );
+                log::debug!("🔗 [LINK] Inode {} ora mappato anche a '{}'", ino, link_path);
 
                 // 10. OTTIENI METADATI AGGIORNATI DAL SERVER
-                let updated_metadata =
-                    match rt.block_on(async { self.client.get_file_metadata(&link_path).await }) {
-                        Ok(metadata) => metadata,
-                        Err(e) => {
-                            log::error!("❌ [LINK] Errore recupero metadati dopo creazione: {}", e);
-                            // Hard link creato ma usa metadati originali
-                            source_metadata
-                        }
-                    };
+                let updated_metadata = match
+                    rt.block_on(async { self.client.get_file_metadata(&link_path).await })
+                {
+                    Ok(metadata) => metadata,
+                    Err(e) => {
+                        log::error!("❌ [LINK] Errore recupero metadati dopo creazione: {}", e);
+                        // Hard link creato ma usa metadati originali
+                        source_metadata
+                    }
+                };
 
                 // 11. RESTITUISCI ENTRY CON STESSO INODE
                 let attr = attributes::from_metadata(ino, &updated_metadata);
@@ -2025,177 +1987,194 @@ impl Filesystem for RemoteFileSystem {
     }
 
     //sistemare solo quando ricevo l'errore che non posso perchè non ho l'autorizazzione
-fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-    println!("📂 [OPEN] INIZIO: ino={}, flags={:#x}", ino, flags);
-    
-    // 1. VALIDAZIONE INODE
-    let path = match self.inode_to_path.get(&ino) {
-        Some(p) => {
-            println!("📂 [OPEN] PATH TROVATO: {}", p);
-            p.clone()
-        },
-        None => {
-            println!("❌ [OPEN] INODE {} NON TROVATO", ino);
-            log::error!("❌ [OPEN] Inode {} non trovato", ino);
-            reply.error(libc::ENOENT);
-            return;
+    fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+        println!("📂 [OPEN] INIZIO: ino={}, flags={:#x}", ino, flags);
+
+        // 1. VALIDAZIONE INODE
+        let path = match self.inode_to_path.get(&ino) {
+            Some(p) => {
+                println!("📂 [OPEN] PATH TROVATO: {}", p);
+                p.clone()
+            }
+            None => {
+                println!("❌ [OPEN] INODE {} NON TROVATO", ino);
+                log::error!("❌ [OPEN] Inode {} non trovato", ino);
+                reply.error(libc::ENOENT);
+                return;
+            }
+        };
+
+        println!("📂 [OPEN] PRIMA DI GET_METADATA");
+
+        // 2. VERIFICA ESISTENZA E TIPO FILE SUL SERVER
+        let rt = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                println!("📂 [OPEN] RUNTIME HANDLE OK");
+                handle
+            }
+            Err(_) => {
+                println!("📂 [OPEN] CREANDO NUOVO RUNTIME");
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
+
+        println!("📂 [OPEN] CHIAMANDO BLOCK_ON...");
+
+        let metadata_result = rt.block_on(async {
+            println!("📂 [OPEN] DENTRO ASYNC BLOCK");
+            let result = self.client.get_file_metadata(&path).await;
+            println!("📂 [OPEN] METADATA RESULT: {:?}", result.is_ok());
+            result
+        });
+
+        println!("📂 [OPEN] DOPO BLOCK_ON");
+
+        let metadata = match metadata_result {
+            Ok(metadata) => {
+                println!("📂 [OPEN] METADATA OK: {:?}", metadata.kind);
+                metadata
+            }
+            Err(ClientError::NotFound { .. }) => {
+                println!("❌ [OPEN] FILE NON TROVATO: {}", path);
+                reply.error(libc::ENOENT);
+                return;
+            }
+            Err(e) => {
+                println!("❌ [OPEN] ERRORE METADATA: {}", e);
+                reply.error(libc::EIO);
+                return;
+            }
+        };
+
+        // Nella funzione open, dopo "METADATA OK"
+
+        println!("📂 [OPEN] METADATA OK: {:?}", metadata.kind);
+
+        // 3. VERIFICA TIPO FILE
+        match metadata.kind {
+            FileKind::RegularFile => {
+                println!("📂 [OPEN] File regolare OK");
+            }
+            FileKind::Symlink => {
+                println!("🔗 [OPEN] Symlink - seguirò il target");
+                // Per i symlink, il kernel dovrebbe aver già fatto readlink e lookup del target
+                // Ma permettiamo l'apertura diretta
+            }
+            FileKind::Directory => {
+                println!("❌ [OPEN] È una directory");
+                reply.error(libc::EISDIR);
+                return;
+            }
+            _ => {
+                println!("❌ [OPEN] Tipo file non supportato: {:?}", metadata.kind);
+                reply.error(libc::EPERM);
+                return;
+            }
         }
-    };
 
-    println!("📂 [OPEN] PRIMA DI GET_METADATA");
-    
-    // 2. VERIFICA ESISTENZA E TIPO FILE SUL SERVER
-    let rt = match tokio::runtime::Handle::try_current() {
-        Ok(handle) => {
-            println!("📂 [OPEN] RUNTIME HANDLE OK");
-            handle
-        },
-        Err(_) => {
-            println!("📂 [OPEN] CREANDO NUOVO RUNTIME");
-            let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-            runtime.handle().clone()
+        println!("📂 [OPEN] TIPO FILE OK");
+
+        // 4. ANALISI FLAGS
+        let access_mode = flags & libc::O_ACCMODE;
+        let open_flags = flags & !libc::O_ACCMODE;
+
+        println!("📂 [OPEN] ACCESS_MODE: {:#x}", access_mode);
+        println!("📂 [OPEN] OPEN_FLAGS: {:#x}", open_flags);
+
+        match access_mode {
+            libc::O_RDONLY => println!("📂 [OPEN] MODALITÀ: READ_ONLY"),
+            libc::O_WRONLY => println!("📂 [OPEN] MODALITÀ: WRITE_ONLY"),
+            libc::O_RDWR => println!("📂 [OPEN] MODALITÀ: READ_WRITE"),
+            _ => println!("📂 [OPEN] MODALITÀ: UNKNOWN ({:#x})", access_mode),
         }
-    };
-    
-    println!("📂 [OPEN] CHIAMANDO BLOCK_ON...");
-    
-    let metadata_result = rt.block_on(async { 
-        println!("📂 [OPEN] DENTRO ASYNC BLOCK");
-        let result = self.client.get_file_metadata(&path).await;
-        println!("📂 [OPEN] METADATA RESULT: {:?}", result.is_ok());
-        result
-    });
 
-    println!("📂 [OPEN] DOPO BLOCK_ON");
-
-    let metadata = match metadata_result {
-        Ok(metadata) => {
-            println!("📂 [OPEN] METADATA OK: {:?}", metadata.kind);
-            metadata
-        },
-        Err(ClientError::NotFound { .. }) => {
-            println!("❌ [OPEN] FILE NON TROVATO: {}", path);
-            reply.error(libc::ENOENT);
-            return;
+        if (open_flags & libc::O_APPEND) != 0 {
+            println!("📂 [OPEN] FLAG: O_APPEND RILEVATO");
         }
-        Err(e) => {
-            println!("❌ [OPEN] ERRORE METADATA: {}", e);
-            reply.error(libc::EIO);
-            return;
+        if (open_flags & libc::O_CREAT) != 0 {
+            println!("📂 [OPEN] FLAG: O_CREAT RILEVATO");
         }
-    };
-
-
-// Nella funzione open, dopo "METADATA OK"
-
-println!("📂 [OPEN] METADATA OK: {:?}", metadata.kind);
-
-// 3. VERIFICA TIPO FILE
-if metadata.kind != FileKind::RegularFile {
-    println!("❌ [OPEN] Non è un file regolare: {:?}", metadata.kind);
-    log::error!("❌ [OPEN] Tentativo di aprire non-file: {:?}", metadata.kind);
-    reply.error(libc::EISDIR);
-    return;
-}
-
-println!("📂 [OPEN] TIPO FILE OK");
-
-// 4. ANALISI FLAGS
-let access_mode = flags & libc::O_ACCMODE;
-let open_flags = flags & !libc::O_ACCMODE;
-
-println!("📂 [OPEN] ACCESS_MODE: {:#x}", access_mode);
-println!("📂 [OPEN] OPEN_FLAGS: {:#x}", open_flags);
-
-match access_mode {
-    libc::O_RDONLY => println!("📂 [OPEN] MODALITÀ: READ_ONLY"),
-    libc::O_WRONLY => println!("📂 [OPEN] MODALITÀ: WRITE_ONLY"),
-    libc::O_RDWR => println!("📂 [OPEN] MODALITÀ: READ_WRITE"),
-    _ => println!("📂 [OPEN] MODALITÀ: UNKNOWN ({:#x})", access_mode),
-}
-
-if open_flags & libc::O_APPEND != 0 {
-    println!("📂 [OPEN] FLAG: O_APPEND RILEVATO");
-}
-if open_flags & libc::O_CREAT != 0 {
-    println!("📂 [OPEN] FLAG: O_CREAT RILEVATO");
-}
-if open_flags & libc::O_TRUNC != 0 {
-    println!("📂 [OPEN] FLAG: O_TRUNC RILEVATO");
-}
-
-println!("📂 [OPEN] PRIMA VERIFICA PERMESSI");
-
-// 5. VALIDAZIONE PERMESSI DI ACCESSO
-let perms = parse_permissions(&metadata.perm);
-println!("📂 [OPEN] PERMESSI PARSATI: owner={:#o}", perms.owner);
-
-let effective_perms = perms.owner; // Assumiamo owner per semplicità
-
-match access_mode {
-    libc::O_RDONLY => {
-        println!("📖 [OPEN] Verifica permesso lettura...");
-        if (effective_perms & 0o4) == 0 {  // ✅ FIX: 0o4 invece di 0o400
-            println!("❌ [OPEN] Permesso di lettura negato");
-            reply.error(libc::EACCES);
-            return;
+        if (open_flags & libc::O_TRUNC) != 0 {
+            println!("📂 [OPEN] FLAG: O_TRUNC RILEVATO");
         }
-        println!("✅ [OPEN] Permesso lettura OK");
+
+        println!("📂 [OPEN] PRIMA VERIFICA PERMESSI");
+
+        // 5. VALIDAZIONE PERMESSI DI ACCESSO
+        let perms = parse_permissions(&metadata.perm);
+        println!("📂 [OPEN] PERMESSI PARSATI: owner={:#o}", perms.owner);
+
+        let effective_perms = perms.owner; // Assumiamo owner per semplicità
+
+        match access_mode {
+            libc::O_RDONLY => {
+                println!("📖 [OPEN] Verifica permesso lettura...");
+                if (effective_perms & 0o4) == 0 {
+                    // ✅ FIX: 0o4 invece di 0o400
+                    println!("❌ [OPEN] Permesso di lettura negato");
+                    reply.error(libc::EACCES);
+                    return;
+                }
+                println!("✅ [OPEN] Permesso lettura OK");
+            }
+            libc::O_WRONLY => {
+                println!("✏️ [OPEN] Verifica permesso scrittura...");
+                if (effective_perms & 0o2) == 0 {
+                    // ✅ FIX: 0o2 invece di 0o200
+                    println!("❌ [OPEN] Permesso di scrittura negato");
+                    reply.error(libc::EACCES);
+                    return;
+                }
+                println!("✅ [OPEN] Permesso scrittura OK");
+            }
+            libc::O_RDWR => {
+                println!("📝 [OPEN] Verifica permessi lettura/scrittura...");
+                if (effective_perms & 0o6) != 0o6 {
+                    // ✅ FIX: 0o6 invece di 0o600
+                    println!("❌ [OPEN] Permessi lettura/scrittura insufficienti");
+                    reply.error(libc::EACCES);
+                    return;
+                }
+                println!("✅ [OPEN] Permessi lettura/scrittura OK");
+            }
+            _ => {
+                println!("❌ [OPEN] Modalità di accesso non valida: {:#x}", access_mode);
+                reply.error(libc::EINVAL);
+                return;
+            }
+        }
+
+        println!("📂 [OPEN] PERMESSI VERIFICATI - CONTINUANDO...");
+
+        // 6. GENERA FILE HANDLE
+        let fh = self.next_fh;
+        self.next_fh += 1;
+
+        println!("📂 [OPEN] FILE HANDLE GENERATO: {}", fh);
+
+        // 7. REGISTRA FILE APERTO
+        self.open_files.insert(fh, OpenFile {
+            path: path.clone(),
+            flags,
+        });
+
+        println!("📂 [OPEN] FILE REGISTRATO IN OPEN_FILES");
+
+        // 8. GESTIONE O_TRUNC
+        if (open_flags & libc::O_TRUNC) != 0 && access_mode != libc::O_RDONLY {
+            println!("✂️ [OPEN] O_TRUNC rilevato - troncamento file");
+            // ... codice troncamento se presente ...
+        }
+
+        println!("📂 [OPEN] PRIMA DI REPLY.OPENED");
+
+        // 9. RESTITUISCI FILE HANDLE
+        reply.opened(fh, 0);
+
+        println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
     }
-    libc::O_WRONLY => {
-        println!("✏️ [OPEN] Verifica permesso scrittura...");
-        if (effective_perms & 0o2) == 0 {  // ✅ FIX: 0o2 invece di 0o200
-            println!("❌ [OPEN] Permesso di scrittura negato");
-            reply.error(libc::EACCES);
-            return;
-        }
-        println!("✅ [OPEN] Permesso scrittura OK");
-    }
-    libc::O_RDWR => {
-        println!("📝 [OPEN] Verifica permessi lettura/scrittura...");
-        if (effective_perms & 0o6) != 0o6 {  // ✅ FIX: 0o6 invece di 0o600
-            println!("❌ [OPEN] Permessi lettura/scrittura insufficienti");
-            reply.error(libc::EACCES);
-            return;
-        }
-        println!("✅ [OPEN] Permessi lettura/scrittura OK");
-    }
-    _ => {
-        println!("❌ [OPEN] Modalità di accesso non valida: {:#x}", access_mode);
-        reply.error(libc::EINVAL);
-        return;
-    }
-}
 
-println!("📂 [OPEN] PERMESSI VERIFICATI - CONTINUANDO...");
-
-// 6. GENERA FILE HANDLE
-let fh = self.next_fh;
-self.next_fh += 1;
-
-println!("📂 [OPEN] FILE HANDLE GENERATO: {}", fh);
-
-// 7. REGISTRA FILE APERTO
-self.open_files.insert(fh, OpenFile {
-    path: path.clone(),
-    flags,
-});
-
-println!("📂 [OPEN] FILE REGISTRATO IN OPEN_FILES");
-
-// 8. GESTIONE O_TRUNC
-if open_flags & libc::O_TRUNC != 0 && access_mode != libc::O_RDONLY {
-    println!("✂️ [OPEN] O_TRUNC rilevato - troncamento file");
-    // ... codice troncamento se presente ...
-}
-
-println!("📂 [OPEN] PRIMA DI REPLY.OPENED");
-
-// 9. RESTITUISCI FILE HANDLE
-reply.opened(fh, 0);
-
-println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
-}
     fn read(
         &mut self,
         _req: &Request<'_>,
@@ -2205,7 +2184,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         size: u32,
         flags: i32,
         lock_owner: Option<u64>,
-        reply: ReplyData,
+        reply: ReplyData
     ) {
         log::debug!(
             "📖 [READ] ino: {}, fh: {}, offset: {}, size: {}, flags: {:#x}",
@@ -2248,22 +2227,19 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         // 3. VERIFICA PERMESSI DI LETTURA
         let access_mode = open_file.flags & libc::O_ACCMODE;
         if access_mode == libc::O_WRONLY {
-            log::warn!(
-                "⚠️ [READ] Tentativo di lettura su file aperto in WRITE-ONLY: {}",
-                path
-            );
+            log::warn!("⚠️ [READ] Tentativo di lettura su file aperto in WRITE-ONLY: {}", path);
             reply.error(libc::EBADF);
             return;
         }
 
         // 4. OTTIENI METADATI E VERIFICA ESISTENZA
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -2289,10 +2265,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                 return;
             }
             _ => {
-                log::warn!(
-                    "⚠️ [READ] Tipo file non supportato per read: {:?}",
-                    metadata.kind
-                );
+                log::warn!("⚠️ [READ] Tipo file non supportato per read: {:?}", metadata.kind);
                 reply.error(libc::EPERM);
                 return;
             }
@@ -2302,11 +2275,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 6. GESTIONE OFFSET OLTRE EOF
         if offset_u64 >= file_size {
-            log::debug!(
-                "📖 [READ] Offset {} >= dimensione file {} - EOF",
-                offset_u64,
-                file_size
-            );
+            log::debug!("📖 [READ] Offset {} >= dimensione file {} - EOF", offset_u64, file_size);
             reply.data(&[]);
             return;
         }
@@ -2333,9 +2302,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 9. LEGGI DATI DAL SERVER
         let read_result = rt.block_on(async {
-            self.client
-                .read_file(&path, Some(offset_u64), Some(bytes_to_read))
-                .await
+            self.client.read_file(&path, Some(offset_u64), Some(bytes_to_read)).await
         });
 
         match read_result {
@@ -2343,7 +2310,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                 let data = read_response.data;
 
                 // 10. VALIDAZIONE DATI RICEVUTI
-                if data.len() > bytes_to_read as usize {
+                if data.len() > (bytes_to_read as usize) {
                     log::warn!(
                         "⚠️ [READ] Server ha restituito più dati del richiesto: {} > {}, troncando",
                         data.len(),
@@ -2388,18 +2355,18 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         write_flags: u32,
         flags: i32,
         lock_owner: Option<u64>,
-        reply: fuser::ReplyWrite,
+        reply: fuser::ReplyWrite
     ) {
         println!("WRITEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE");
         log::debug!(
-        "✏️ [WRITE] ino: {}, fh: {}, offset: {}, data.len: {}, write_flags: {:#x}, flags: {:#x}",
-        ino,
-        fh,
-        offset,
-        data.len(),
-        write_flags,
-        flags
-    );
+            "✏️ [WRITE] ino: {}, fh: {}, offset: {}, data.len: {}, write_flags: {:#x}, flags: {:#x}",
+            ino,
+            fh,
+            offset,
+            data.len(),
+            write_flags,
+            flags
+        );
 
         // 1. VALIDAZIONE PARAMETRI
         if offset < 0 {
@@ -2434,22 +2401,19 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         // 3. VERIFICA PERMESSI DI SCRITTURA
         let access_mode = open_flags & libc::O_ACCMODE;
         if access_mode == libc::O_RDONLY {
-            log::warn!(
-                "⚠️ [WRITE] Tentativo di scrittura su file aperto in READ-ONLY: {}",
-                path
-            );
+            log::warn!("⚠️ [WRITE] Tentativo di scrittura su file aperto in READ-ONLY: {}", path);
             reply.error(libc::EBADF);
             return;
         }
 
         // 4. OTTIENI METADATI E VERIFICA ESISTENZA
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -2475,10 +2439,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                 return;
             }
             _ => {
-                log::warn!(
-                    "⚠️ [WRITE] Tipo file non supportato per write: {:?}",
-                    metadata.kind
-                );
+                log::warn!("⚠️ [WRITE] Tipo file non supportato per write: {:?}", metadata.kind);
                 reply.error(libc::EPERM);
                 return;
             }
@@ -2487,7 +2448,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         let current_file_size = metadata.size;
 
         // 6. GESTIONE MODALITÀ APPEND
-        let effective_offset = if open_flags & libc::O_APPEND != 0 {
+        let effective_offset = if (open_flags & libc::O_APPEND) != 0 {
             log::debug!(
                 "📎 [WRITE] Modalità APPEND: offset {} → {}",
                 offset_u64,
@@ -2499,23 +2460,23 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         };
 
         // 7. CALCOLA NUOVA DIMENSIONE FILE
-        let new_file_size = std::cmp::max(current_file_size, effective_offset + data_len as u64);
+        let new_file_size = std::cmp::max(current_file_size, effective_offset + (data_len as u64));
 
         println!(
-        "✏️ [WRITE] File: {}, current_size: {}, offset: {}, effective_offset: {}, data_len: {}, new_size: {}",
-        path,
-        current_file_size,
-        offset_u64,
-        effective_offset,
-        data_len,
-        new_file_size
-    );
+            "✏️ [WRITE] File: {}, current_size: {}, offset: {}, effective_offset: {}, data_len: {}, new_size: {}",
+            path,
+            current_file_size,
+            offset_u64,
+            effective_offset,
+            data_len,
+            new_file_size
+        );
 
         // 8. DETERMINA MODALITÀ DI SCRITTURA
         let write_mode = if effective_offset == current_file_size {
             // Scrittura alla fine del file (append)
             Mode::Append
-        } else if effective_offset == 0 && data_len as u64 >= current_file_size {
+        } else if effective_offset == 0 && (data_len as u64) >= current_file_size {
             // Sovrascrittura completa del file
             Mode::Write
         } else {
@@ -2543,25 +2504,25 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
             } else if matches!(write_mode, Mode::Append) {
                 println!("appenddddddddddddddddddddd");
                 data_len as u64
-                
             } else {
                 new_file_size
             },
-            atime: metadata.atime.clone(),   // Mantieni access time
-            mtime: now_iso.clone(),          // Aggiorna modification time
-            ctime: now_iso.clone(),          // Aggiorna change time
+            atime: metadata.atime.clone(), // Mantieni access time
+            mtime: now_iso.clone(), // Aggiorna modification time
+            ctime: now_iso.clone(), // Aggiorna change time
             crtime: metadata.crtime.clone(), // Mantieni creation time
-            kind: metadata.kind,             // Mantieni tipo file
-            ref_path: None,                  // Mantieni ref_path se esiste
-            perm: metadata.perm.clone(),     // Mantieni permessi
-            mode: write_mode.clone(),        // Modalità determinata sopra
-            data: Some(data.to_vec()),       // Dati da scrivere
+            kind: metadata.kind, // Mantieni tipo file
+            ref_path: None, // Mantieni ref_path se esiste
+            perm: metadata.perm.clone(), // Mantieni permessi
+            mode: write_mode.clone(), // Modalità determinata sopra
+            data: Some(data.to_vec()), // Dati da scrivere
         };
 
         // 10. GESTIONE SCRITTURA PARZIALE (se necessaria)
-        let final_data = if matches!(write_mode, Mode::Write)
-            && effective_offset > 0
-            && effective_offset < current_file_size
+        let final_data = if
+            matches!(write_mode, Mode::Write) &&
+            effective_offset > 0 &&
+            effective_offset < current_file_size
         {
             // Dobbiamo fare una scrittura parziale - leggi file esistente e modifica
             log::debug!("🔄 [WRITE] Eseguendo scrittura parziale...");
@@ -2571,7 +2532,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                     let mut file_data = existing_content.data;
 
                     // Estendi il file se necessario
-                    if file_data.len() < new_file_size as usize {
+                    if file_data.len() < (new_file_size as usize) {
                         file_data.resize(new_file_size as usize, 0);
                     }
 
@@ -2583,10 +2544,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                     Some(file_data)
                 }
                 Err(e) => {
-                    log::error!(
-                        "❌ [WRITE] Errore lettura file per scrittura parziale: {}",
-                        e
-                    );
+                    log::error!("❌ [WRITE] Errore lettura file per scrittura parziale: {}", e);
                     reply.error(libc::EIO);
                     return;
                 }
@@ -2643,7 +2601,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         _ino: u64,
         _fh: u64,
         _lock_owner: u64,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
         // Nessun buffering locale = nessuna azione necessaria
         reply.ok();
@@ -2657,7 +2615,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         flags: i32,
         lock_owner: Option<u64>,
         flush: bool,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
         log::debug!(
             "🔒 [RELEASE] ino: {}, fh: {}, flags: {:#x}, lock_owner: {:?}, flush: {}",
@@ -2672,10 +2630,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
             None => {
-                log::warn!(
-                    "⚠️ [RELEASE] File handle {} già rilasciato o inesistente",
-                    fh
-                );
+                log::warn!("⚠️ [RELEASE] File handle {} già rilasciato o inesistente", fh);
                 // Non è un errore fatale - restituisci ok comunque
                 reply.ok();
                 return;
@@ -2702,10 +2657,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         }
 
         // 4. STATISTICHE OPZIONALI
-        log::debug!(
-            "📊 [RELEASE] File aperti rimanenti: {}",
-            self.open_files.len()
-        );
+        log::debug!("📊 [RELEASE] File aperti rimanenti: {}", self.open_files.len());
 
         reply.ok();
     }
@@ -2716,14 +2668,9 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         ino: u64,
         fh: u64,
         datasync: bool,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
-        log::debug!(
-            "💫 [FSYNC] ino: {}, fh: {}, datasync: {}",
-            ino,
-            fh,
-            datasync
-        );
+        log::debug!("💫 [FSYNC] ino: {}, fh: {}, datasync: {}", ino, fh, datasync);
 
         // 1. VERIFICA FILE HANDLE VALIDO
         let open_file = match self.open_files.get(&fh) {
@@ -2752,12 +2699,12 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // Opzionale: Verifica che il file esista ancora
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(_) => {
                 log::debug!("✅ [FSYNC] File confermato esistente sul server");
@@ -2791,12 +2738,12 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 2. VERIFICA CHE SIA UNA DIRECTORY
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -2813,11 +2760,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 3. VERIFICA TIPO DIRECTORY
         if metadata.kind != FileKind::Directory {
-            log::warn!(
-                "⚠️ [OPENDIR] '{}' non è una directory: {:?}",
-                path,
-                metadata.kind
-            );
+            log::warn!("⚠️ [OPENDIR] '{}' non è una directory: {:?}", path, metadata.kind);
             reply.error(libc::ENOTDIR);
             return;
         }
@@ -2847,13 +2790,10 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         self.next_fh += 1;
 
         // 7. REGISTRA DIRECTORY APERTA
-        self.open_dirs.insert(
-            dh,
-            OpenDir {
-                path: path.clone(),
-                flags, // ← Includi i flags
-            },
-        );
+        self.open_dirs.insert(dh, OpenDir {
+            path: path.clone(),
+            flags, // ← Includi i flags
+        });
 
         log::debug!(
             "✅ [OPENDIR] Directory aperta: path='{}', dh={}, flags={:#x}",
@@ -2872,7 +2812,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         ino: u64,
         fh: u64,
         offset: i64,
-        mut reply: ReplyDirectory,
+        mut reply: ReplyDirectory
     ) {
         log::debug!("📂 [READDIR] ino: {}, fh: {}, offset: {}", ino, fh, offset);
 
@@ -2891,12 +2831,12 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 2. OTTIENI CONTENUTO DIRECTORY DAL SERVER
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let listing_result = rt.block_on(async { self.client.list_directory(&path).await });
 
         let listing = match listing_result {
@@ -2929,7 +2869,8 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
             1 // Root directory
         } else {
             // Calcola inode del padre
-            let parent_path = std::path::Path::new(&path)
+            let parent_path = std::path::Path
+                ::new(&path)
                 .parent()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|| "/".to_string());
@@ -2964,10 +2905,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                 FileKind::Symlink => FileType::Symlink,
                 FileKind::Hardlink => FileType::RegularFile, // Hard link appare come file normale
                 _ => {
-                    log::warn!(
-                        "⚠️ [READDIR] Tipo file non supportato: {:?}",
-                        file_entry.kind
-                    );
+                    log::warn!("⚠️ [READDIR] Tipo file non supportato: {:?}", file_entry.kind);
                     FileType::RegularFile // Fallback
                 }
             };
@@ -2975,10 +2913,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
             entries.push((entry_ino, file_type, file_entry.name));
         }
 
-        log::debug!(
-            "📂 [READDIR] Trovati {} entries totali (inclusi . e ..)",
-            entries.len()
-        );
+        log::debug!("📂 [READDIR] Trovati {} entries totali (inclusi . e ..)", entries.len());
 
         // 5. GESTIONE OFFSET E PAGINAZIONE
         let start_index = if offset == 0 {
@@ -3013,10 +2948,10 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
             // Aggiungi entry al buffer di risposta
             let buffer_full = reply.add(
-                entry_ino,             // inode
+                entry_ino, // inode
                 current_offset as i64, // offset per prossima entry
-                file_type,             // tipo file
-                name,                  // nome file
+                file_type, // tipo file
+                name // nome file
             );
 
             if buffer_full {
@@ -3040,23 +2975,15 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         ino: u64,
         fh: u64,
         flags: i32,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
-        log::debug!(
-            "🔒 [RELEASEDIR] ino: {}, fh: {}, flags: {:#x}",
-            ino,
-            fh,
-            flags
-        );
+        log::debug!("🔒 [RELEASEDIR] ino: {}, fh: {}, flags: {:#x}", ino, fh, flags);
 
         // 1. VERIFICA CHE IL DIRECTORY HANDLE ESISTA
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
             None => {
-                log::warn!(
-                    "⚠️ [RELEASEDIR] Directory handle {} già rilasciato o inesistente",
-                    fh
-                );
+                log::warn!("⚠️ [RELEASEDIR] Directory handle {} già rilasciato o inesistente", fh);
                 // Non è un errore fatale - restituisci ok comunque
                 reply.ok();
                 return;
@@ -3076,10 +3003,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         }
 
         // 3. STATISTICHE OPZIONALI
-        log::debug!(
-            "📊 [RELEASEDIR] Directory aperte rimanenti: {}",
-            self.open_dirs.len()
-        );
+        log::debug!("📊 [RELEASEDIR] Directory aperte rimanenti: {}", self.open_dirs.len());
 
         log::debug!("✅ [RELEASEDIR] Operazione completata per: {}", path);
 
@@ -3092,14 +3016,9 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         ino: u64,
         fh: u64,
         datasync: bool,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
-        log::debug!(
-            "💫📂 [FSYNCDIR] ino: {}, fh: {}, datasync: {}",
-            ino,
-            fh,
-            datasync
-        );
+        log::debug!("💫📂 [FSYNCDIR] ino: {}, fh: {}, datasync: {}", ino, fh, datasync);
 
         // 1. VERIFICA DIRECTORY HANDLE VALIDO
         let open_dir = match self.open_dirs.get(&fh) {
@@ -3116,12 +3035,12 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 2. VERIFICA CHE SIA EFFETTIVAMENTE UNA DIRECTORY
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -3155,10 +3074,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                 reply.ok();
             }
             Err(ClientError::NotFound { .. }) => {
-                log::error!(
-                    "❌ [FSYNCDIR] Directory eliminata durante fsyncdir: {}",
-                    path
-                );
+                log::error!("❌ [FSYNCDIR] Directory eliminata durante fsyncdir: {}", path);
                 reply.error(libc::ENOENT);
             }
             Err(ClientError::PermissionDenied(_)) => {
@@ -3178,7 +3094,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         let free_blocks = 134217728u64; // 512GB / 4KB
         let available_blocks = free_blocks;
         let total_inodes = 1000000u64;
-        let free_inodes = total_inodes - self.path_to_inode.len() as u64;
+        let free_inodes = total_inodes - (self.path_to_inode.len() as u64);
 
         reply.statfs(
             total_blocks,
@@ -3188,7 +3104,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
             total_inodes,
             4096,
             255,
-            0,
+            0
         );
     }
 
@@ -3200,7 +3116,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         _value: &[u8],
         flags: i32,
         position: u32,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
         log::debug!(
             "[Not Implemented] setxattr(ino: {:#x?}, name: {:?}, flags: {:#x?}, position: {})",
@@ -3218,7 +3134,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         ino: u64,
         name: &OsStr,
         size: u32,
-        reply: fuser::ReplyXattr,
+        reply: fuser::ReplyXattr
     ) {
         log::debug!(
             "[Not Implemented] getxattr(ino: {:#x?}, name: {:?}, size: {})",
@@ -3230,11 +3146,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
     }
 
     fn listxattr(&mut self, _req: &Request<'_>, ino: u64, size: u32, reply: fuser::ReplyXattr) {
-        log::debug!(
-            "[Not Implemented] listxattr(ino: {:#x?}, size: {})",
-            ino,
-            size
-        );
+        log::debug!("[Not Implemented] listxattr(ino: {:#x?}, size: {})", ino, size);
         reply.error(libc::ENOSYS);
     }
 
@@ -3243,13 +3155,9 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         _req: &Request<'_>,
         ino: u64,
         name: &OsStr,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
-        log::debug!(
-            "[Not Implemented] removexattr(ino: {:#x?}, name: {:?})",
-            ino,
-            name
-        );
+        log::debug!("[Not Implemented] removexattr(ino: {:#x?}, name: {:?})", ino, name);
         reply.error(libc::ENOSYS);
     }
 
@@ -3269,10 +3177,11 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         log::debug!("🔍 [ACCESS] Path: {}, mask: {:#x}", path, mask);
 
         // 2. DECODIFICA MASK
-        let check_exist = mask == libc::F_OK || mask & (libc::R_OK | libc::W_OK | libc::X_OK) != 0;
-        let check_read = mask & libc::R_OK != 0;
-        let check_write = mask & libc::W_OK != 0;
-        let check_exec = mask & libc::X_OK != 0;
+        let check_exist =
+            mask == libc::F_OK || (mask & (libc::R_OK | libc::W_OK | libc::X_OK)) != 0;
+        let check_read = (mask & libc::R_OK) != 0;
+        let check_write = (mask & libc::W_OK) != 0;
+        let check_exec = (mask & libc::X_OK) != 0;
 
         log::debug!(
             "🔍 [ACCESS] Verifiche: exist={}, read={}, write={}, exec={}",
@@ -3284,12 +3193,12 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 3. OTTIENI METADATI DAL SERVER
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -3375,7 +3284,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         mode: u32,
         umask: u32,
         flags: i32,
-        reply: fuser::ReplyCreate,
+        reply: fuser::ReplyCreate
     ) {
         println!("CREAAAATEEEEEEEEEEE");
         log::debug!(
@@ -3401,10 +3310,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                log::error!(
-                    "❌ [CREATE] Directory padre con inode {} non trovata",
-                    parent
-                );
+                log::error!("❌ [CREATE] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -3427,7 +3333,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         }
 
         // 5. CALCOLA PERMESSI EFFETTIVI
-        let effective_permissions = (mode & 0o777) & !(umask & 0o777);
+        let effective_permissions = mode & 0o777 & !(umask & 0o777);
         let effective_permissions_str = format!("{:o}", effective_permissions);
 
         // 6. ANALISI FLAGS DI APERTURA
@@ -3443,32 +3349,32 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 7. CREA FILE SUL SERVER
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let now_iso = chrono::Utc::now().to_rfc3339();
 
         let create_request = WriteRequest {
             offset: None,
             path: full_path.clone(),
             new_path: None, // ✅ AGGIUNGI QUESTO
-            size: 0,        // File vuoto inizialmente
+            size: 0, // File vuoto inizialmente
             atime: now_iso.clone(),
             mtime: now_iso.clone(),
             ctime: now_iso.clone(),
             crtime: now_iso,
             kind: FileKind::RegularFile,
-            ref_path: None,                  // ✅ AGGIUNGI QUESTO
+            ref_path: None, // ✅ AGGIUNGI QUESTO
             perm: effective_permissions_str, // ✅ FIX: usa la variabile corretta
             mode: Mode::Write,
             data: Some(Vec::new()), // File vuoto
         };
 
         // 8. GESTIONE TRUNCATE FLAG
-        if open_flags & libc::O_TRUNC != 0 {
+        if (open_flags & libc::O_TRUNC) != 0 {
             log::debug!("✂️ [CREATE] Flag O_TRUNC rilevato (redundante su file nuovo)");
             // Su file nuovo, O_TRUNC è ridondante
         }
@@ -3486,17 +3392,15 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                 self.next_fh += 1;
 
                 // 11. REGISTRA FILE APERTO
-                self.open_files.insert(
-                    fh,
-                    OpenFile {
-                        path: full_path.clone(),
-                        flags,
-                    },
-                );
+                self.open_files.insert(fh, OpenFile {
+                    path: full_path.clone(),
+                    flags,
+                });
 
                 // 12. OTTIENI METADATI DAL SERVER
-                let metadata_result =
-                    rt.block_on(async { self.client.get_file_metadata(&full_path).await });
+                let metadata_result = rt.block_on(async {
+                    self.client.get_file_metadata(&full_path).await
+                });
 
                 match metadata_result {
                     Ok(metadata) => {
@@ -3542,7 +3446,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         end: u64,
         typ: i32,
         pid: u32,
-        reply: fuser::ReplyLock,
+        reply: fuser::ReplyLock
     ) {
         log::debug!(
             "🔒 [GETLK] ino: {}, range: {}-{}, type: {}, pid: {}",
@@ -3575,7 +3479,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                             existing_lock.start,
                             existing_lock.end,
                             existing_lock.typ,
-                            existing_lock.pid,
+                            existing_lock.pid
                         );
                         return;
                     }
@@ -3599,7 +3503,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         typ: i32,
         pid: u32,
         sleep: bool,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
         log::debug!(
             "🔒 [SETLK] ino: {}, range: {}-{}, type: {}, pid: {}, sleep: {}",
@@ -3622,8 +3526,10 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                 // Rimuovi lock esistenti
                 if let Some(locks) = self.file_locks.get_mut(&ino) {
                     locks.retain(|lock| {
-                        !(lock.lock_owner == lock_owner
-                            && ranges_overlap(start, end, lock.start, lock.end))
+                        !(
+                            lock.lock_owner == lock_owner &&
+                            ranges_overlap(start, end, lock.start, lock.end)
+                        )
                     });
                 }
                 log::debug!("✅ [SETLK] Lock rilasciato");
@@ -3633,9 +3539,10 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                 // Verifica conflitti
                 if let Some(locks) = self.file_locks.get(&ino) {
                     for existing_lock in locks {
-                        if ranges_overlap(start, end, existing_lock.start, existing_lock.end)
-                            && locks_conflict(typ, existing_lock.typ)
-                            && existing_lock.lock_owner != lock_owner
+                        if
+                            ranges_overlap(start, end, existing_lock.start, existing_lock.end) &&
+                            locks_conflict(typ, existing_lock.typ) &&
+                            existing_lock.lock_owner != lock_owner
                         {
                             if sleep {
                                 // In un'implementazione reale, dovresti mettere il processo in attesa
@@ -3661,10 +3568,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
                     lock_owner,
                 };
 
-                self.file_locks
-                    .entry(ino)
-                    .or_insert_with(Vec::new)
-                    .push(new_lock);
+                self.file_locks.entry(ino).or_insert_with(Vec::new).push(new_lock);
 
                 log::debug!("✅ [SETLK] Lock acquisito: type={}", typ);
                 reply.ok();
@@ -3681,14 +3585,9 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         ino: u64,
         blocksize: u32,
         idx: u64,
-        reply: fuser::ReplyBmap,
+        reply: fuser::ReplyBmap
     ) {
-        log::debug!(
-            "🗺️ [BMAP] ino: {}, blocksize: {}, idx: {}",
-            ino,
-            blocksize,
-            idx
-        );
+        log::debug!("🗺️ [BMAP] ino: {}, blocksize: {}, idx: {}", ino, blocksize, idx);
 
         // 1. VERIFICA CHE IL FILE ESISTA
         let path = match self.inode_to_path.get(&ino) {
@@ -3702,12 +3601,12 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 2. OTTIENI METADATI DEL FILE
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
@@ -3731,15 +3630,11 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 4. CALCOLA NUMERO TOTALE DI BLOCCHI
         let file_size = metadata.size;
-        let blocks_in_file = (file_size + blocksize as u64 - 1) / blocksize as u64;
+        let blocks_in_file = (file_size + (blocksize as u64) - 1) / (blocksize as u64);
 
         // 5. VERIFICA CHE IL BLOCCO RICHIESTO ESISTA
         if idx >= blocks_in_file {
-            log::debug!(
-                "📍 [BMAP] Blocco {} oltre EOF (file ha {} blocchi)",
-                idx,
-                blocks_in_file
-            );
+            log::debug!("📍 [BMAP] Blocco {} oltre EOF (file ha {} blocchi)", idx, blocks_in_file);
             reply.error(libc::ENXIO);
             return;
         }
@@ -3747,7 +3642,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         // 6. SIMULA MAPPATURA SEQUENZIALE
         // Per filesystem remoto, simula che i blocchi siano sequenziali
         // Usiamo l'inode come "base address" e aggiungiamo l'offset del blocco
-        let simulated_physical_block = (ino * 1000) + idx;
+        let simulated_physical_block = ino * 1000 + idx;
 
         log::debug!(
             "✅ [BMAP] File: {}, logical_block: {} → physical_block: {} (simulato)",
@@ -3768,7 +3663,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         cmd: u32,
         in_data: &[u8],
         out_size: u32,
-        reply: fuser::ReplyIoctl,
+        reply: fuser::ReplyIoctl
     ) {
         log::debug!(
             "[Not Implemented] ioctl(ino: {:#x?}, fh: {}, flags: {}, cmd: {}, \
@@ -3778,7 +3673,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
             flags,
             cmd,
             in_data.len(),
-            out_size,
+            out_size
         );
         reply.error(libc::ENOSYS);
     }
@@ -3791,7 +3686,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         offset: i64,
         length: i64,
         mode: i32,
-        reply: fuser::ReplyEmpty,
+        reply: fuser::ReplyEmpty
     ) {
         log::debug!(
             "[Not Implemented] fallocate(ino: {:#x?}, fh: {}, offset: {}, \
@@ -3812,7 +3707,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         fh: u64,
         offset: i64,
         whence: i32,
-        reply: fuser::ReplyLseek,
+        reply: fuser::ReplyLseek
     ) {
         log::debug!(
             "[Not Implemented] lseek(ino: {:#x?}, fh: {}, offset: {}, whence: {})",
@@ -3835,12 +3730,18 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         offset_out: i64,
         len: u64,
         flags: u32,
-        reply: fuser::ReplyWrite,
+        reply: fuser::ReplyWrite
     ) {
         log::debug!(
-        "📋 [COPY_FILE_RANGE] in: ino={}, fh={}, offset={}, out: ino={}, fh={}, offset={}, len={}",
-        ino_in, fh_in, offset_in, ino_out, fh_out, offset_out, len
-    );
+            "📋 [COPY_FILE_RANGE] in: ino={}, fh={}, offset={}, out: ino={}, fh={}, offset={}, len={}",
+            ino_in,
+            fh_in,
+            offset_in,
+            ino_out,
+            fh_out,
+            offset_out,
+            len
+        );
 
         // 1. VALIDAZIONE PARAMETRI
         if offset_in < 0 || offset_out < 0 {
@@ -3859,10 +3760,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         let source_file = match self.open_files.get(&fh_in) {
             Some(file) => file,
             None => {
-                log::error!(
-                    "❌ [COPY_FILE_RANGE] File handle sorgente {} non trovato",
-                    fh_in
-                );
+                log::error!("❌ [COPY_FILE_RANGE] File handle sorgente {} non trovato", fh_in);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -3871,10 +3769,7 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         let dest_file = match self.open_files.get(&fh_out) {
             Some(file) => file,
             None => {
-                log::error!(
-                    "❌ [COPY_FILE_RANGE] File handle destinazione {} non trovato",
-                    fh_out
-                );
+                log::error!("❌ [COPY_FILE_RANGE] File handle destinazione {} non trovato", fh_out);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -3898,20 +3793,24 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
 
         // 4. ESEGUI COPIA CON READ + WRITE
         let rt = match tokio::runtime::Handle::try_current() {
-    Ok(handle) => handle,
-    Err(_) => {
-        let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-        runtime.handle().clone()
-    }
-};
+            Ok(handle) => handle,
+            Err(_) => {
+                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
+                runtime.handle().clone()
+            }
+        };
         let chunk_size = std::cmp::min(len, 1024 * 1024); // Max 1MB per chunk
 
         // Leggi dal file sorgente
-        let source_data = match rt.block_on(async {
-            self.client
-                .read_file(&source_file.path, Some(offset_in as u64), Some(chunk_size))
-                .await
-        }) {
+        let source_data = match
+            rt.block_on(async {
+                self.client.read_file(
+                    &source_file.path,
+                    Some(offset_in as u64),
+                    Some(chunk_size)
+                ).await
+            })
+        {
             Ok(data) => data.data,
             Err(e) => {
                 log::error!("❌ [COPY_FILE_RANGE] Errore lettura sorgente: {}", e);
@@ -3930,23 +3829,24 @@ println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
         }
 
         // Ottieni metadati destinazione per merge
-        let dest_metadata =
-            match rt.block_on(async { self.client.get_file_metadata(&dest_file.path).await }) {
-                Ok(metadata) => metadata,
-                Err(e) => {
-                    log::error!("❌ [COPY_FILE_RANGE] Errore metadati destinazione: {}", e);
-                    reply.error(libc::EIO);
-                    return;
-                }
-            };
+        let dest_metadata = match
+            rt.block_on(async { self.client.get_file_metadata(&dest_file.path).await })
+        {
+            Ok(metadata) => metadata,
+            Err(e) => {
+                log::error!("❌ [COPY_FILE_RANGE] Errore metadati destinazione: {}", e);
+                reply.error(libc::EIO);
+                return;
+            }
+        };
 
         // Scrivi nel file destinazione
         let now_iso = chrono::Utc::now().to_rfc3339();
         let write_request = WriteRequest {
-            offset:None,
+            offset: None,
             path: dest_file.path.clone(),
             new_path: None,
-            size: std::cmp::max(dest_metadata.size, offset_out as u64 + bytes_to_copy),
+            size: std::cmp::max(dest_metadata.size, (offset_out as u64) + bytes_to_copy),
             atime: dest_metadata.atime.clone(),
             mtime: now_iso.clone(),
             ctime: now_iso,

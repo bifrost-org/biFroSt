@@ -2,10 +2,10 @@
 name = "remotefs"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Francesco Borrelli <>, Emanuele Frisi <emanuelefrisi@outlook.com>"]
 description = "A remote file system client that mounts remote storage as a local directory"
 readme = "README.md"
-repository = "https://github.com/yourusername/remotefs"
+repository = "https://github.com/bifrost-org/biFroSt"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
@@ -46,6 +46,8 @@ toml = "0.8.23"
 libc = "0.2.174"
 mockall = "0.13.1"
 urlencoding = "2.1.3"
+users = "0.11.0"
+dirs = "6.0.0"
 
 [dev-dependencies]
 # Testing utilities
@@ -80,6 +82,4 @@ mount_point = "/mnt/remotefs"
 timeout = 60000000000
 
 # Configurazione di autenticazione (opzionale)
-username = "francesco"
-password = "mypassword"
 api_key = "your-api-key-here"

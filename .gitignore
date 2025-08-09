@@ -1,6 +1,9 @@
 # Created by https://www.toptal.com/developers/gitignore/api/rust,rust-analyzer,node
 # Edit at https://www.toptal.com/developers/gitignore?templates=rust,rust-analyzer,node
 
+### config.toml that will be read for client configuration ###
+config.toml
+
 ### Node ###
 # Logs
 logs

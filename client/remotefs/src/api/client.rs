@@ -39,12 +39,12 @@ fn format_permissions(perm: &str) -> String {
     if perm.len() == 3 && perm.chars().all(|c| c.is_ascii_digit() && c <= '7') {
         return perm.to_string();
     }
-    
+
     // Conversione da formato simbolico rwx a ottale
     if perm.len() == 9 && (perm.starts_with('r') || perm.starts_with('-')) {
         return symbolic_to_octal(perm);
     }
-    
+
     // Se è un numero decimale, convertilo in ottale
     if let Ok(decimal_perm) = perm.parse::<u32>() {
         // Se è già in formato ottale (cifre <= 7), restituiscilo
@@ -54,38 +54,57 @@ fn format_permissions(perm: &str) -> String {
         // Altrimenti converte da decimale a ottale
         return format!("{:03o}", decimal_perm);
     }
-    
+
     // Conversioni per formati comuni
     match perm {
         "rw-r--r--" => "644",
-        "rwxr-xr-x" => "755", 
+        "rwxr-xr-x" => "755",
         "rw-------" => "600",
         "rwxrwxrwx" => "777",
         "r--r--r--" => "444",
         "rwxrwxr-x" => "775",
         _ => "644", // Fallback sicuro
-    }.to_string()
+    }
+    .to_string()
 }
 
 /// Converte permessi simbolici (rwxrwxrwx) in ottale
 fn symbolic_to_octal(symbolic: &str) -> String {
     let mut octal = 0;
-    
+
     // Owner (primi 3 caratteri)
-    if symbolic.chars().nth(0) == Some('r') { octal += 400; }
-    if symbolic.chars().nth(1) == Some('w') { octal += 200; }
-    if symbolic.chars().nth(2) == Some('x') { octal += 100; }
-    
+    if symbolic.chars().nth(0) == Some('r') {
+        octal += 400;
+    }
+    if symbolic.chars().nth(1) == Some('w') {
+        octal += 200;
+    }
+    if symbolic.chars().nth(2) == Some('x') {
+        octal += 100;
+    }
+
     // Group (caratteri 3-5)
-    if symbolic.chars().nth(3) == Some('r') { octal += 40; }
-    if symbolic.chars().nth(4) == Some('w') { octal += 20; }
-    if symbolic.chars().nth(5) == Some('x') { octal += 10; }
-    
+    if symbolic.chars().nth(3) == Some('r') {
+        octal += 40;
+    }
+    if symbolic.chars().nth(4) == Some('w') {
+        octal += 20;
+    }
+    if symbolic.chars().nth(5) == Some('x') {
+        octal += 10;
+    }
+
     // Other (caratteri 6-8)
-    if symbolic.chars().nth(6) == Some('r') { octal += 4; }
-    if symbolic.chars().nth(7) == Some('w') { octal += 2; }
-    if symbolic.chars().nth(8) == Some('x') { octal += 1; }
-    
+    if symbolic.chars().nth(6) == Some('r') {
+        octal += 4;
+    }
+    if symbolic.chars().nth(7) == Some('w') {
+        octal += 2;
+    }
+    if symbolic.chars().nth(8) == Some('x') {
+        octal += 1;
+    }
+
     format!("{:03o}", octal)
 }
 /// Converte datetime ISO in formato richiesto dal server
@@ -255,6 +274,7 @@ impl RemoteClient {
                 kind: FileKind::Directory,
                 perm: "755".to_string(),
                 nlink: 2,
+                ref_path: None,
             });
         }
 
@@ -380,7 +400,6 @@ impl RemoteClient {
         Ok(directory_listing)
     }
 
-
     // Leggi contenuto file con support per offset e size
     pub async fn read_file(
         &self,
@@ -459,32 +478,47 @@ impl RemoteClient {
         // Prepara il JSON dei metadati (includi newPath se necessario)
         let data_size = write_request.data.as_ref().map_or(0, |d| d.len());
         println!("🔍 [DATA] Dimensione dati: {} bytes", data_size);
- let mut metadata_map = serde_json::Map::new();
+        let mut metadata_map = serde_json::Map::new();
 
-metadata_map.insert("size".to_string(), json!(data_size));
-metadata_map.insert("perm".to_string(), json!(format_permissions(&write_request.perm)));
-metadata_map.insert("mtime".to_string(), json!(format_datetime(&write_request.mtime)));
-metadata_map.insert("atime".to_string(), json!(format_datetime(&write_request.atime)));
-metadata_map.insert("ctime".to_string(), json!(format_datetime(&write_request.ctime)));
-metadata_map.insert("crtime".to_string(), json!(format_datetime(&write_request.crtime)));
-metadata_map.insert("kind".to_string(), json!(write_request.kind.to_string()));
-metadata_map.insert("mode".to_string(), json!(write_request.mode.to_string()));
+        metadata_map.insert("size".to_string(), json!(data_size));
+        metadata_map.insert(
+            "perm".to_string(),
+            json!(format_permissions(&write_request.perm)),
+        );
+        metadata_map.insert(
+            "mtime".to_string(),
+            json!(format_datetime(&write_request.mtime)),
+        );
+        metadata_map.insert(
+            "atime".to_string(),
+            json!(format_datetime(&write_request.atime)),
+        );
+        metadata_map.insert(
+            "ctime".to_string(),
+            json!(format_datetime(&write_request.ctime)),
+        );
+        metadata_map.insert(
+            "crtime".to_string(),
+            json!(format_datetime(&write_request.crtime)),
+        );
+        metadata_map.insert("kind".to_string(), json!(write_request.kind.to_string()));
+        metadata_map.insert("mode".to_string(), json!(write_request.mode.to_string()));
 
-// ✅ Aggiungi newPath solo se non è None
-if let Some(ref new_path) = write_request.new_path {
-    metadata_map.insert("newPath".to_string(), json!(new_path));
-}
+        // ✅ Aggiungi newPath solo se non è None
+        if let Some(ref new_path) = write_request.new_path {
+            metadata_map.insert("newPath".to_string(), json!(new_path));
+        }
 
-// ✅ Aggiungi refPath solo se non è None  
-if let Some(ref ref_path) = write_request.ref_path {
-    metadata_map.insert("refPath".to_string(), json!(ref_path));
-}
+        // ✅ Aggiungi refPath solo se non è None
+        if let Some(ref ref_path) = write_request.ref_path {
+            metadata_map.insert("refPath".to_string(), json!(ref_path));
+        }
 
-if let Some(ref offset) = write_request.offset {
-    metadata_map.insert("offset".to_string(), json!(offset));
-}
+        if let Some(ref offset) = write_request.offset {
+            metadata_map.insert("offset".to_string(), json!(offset));
+        }
 
-let metadata_json = serde_json::Value::Object(metadata_map);
+        let metadata_json = serde_json::Value::Object(metadata_map);
         println!("🔍 [METADATA] Metadati preparati: {}", metadata_json);
 
         // Converti metadati in stringa JSON
@@ -554,8 +588,6 @@ let metadata_json = serde_json::Value::Object(metadata_map);
                 } else {
                     println!("  💾 Data: None");
                 }
-
-
             }
 
             return Err(match status_code {
@@ -607,7 +639,7 @@ let metadata_json = serde_json::Value::Object(metadata_map);
     }
 
     // user registration
-    pub async fn user_registration(&self, username: &str) -> Result<(), ClientError> {
+    pub async fn user_registration(&self, username: &str) -> Result<UserKeys, ClientError> {
         let url = format!("{}{}", self.base_url, "/users");
 
         let request_body = RegisterRequest { username };
@@ -620,14 +652,15 @@ let metadata_json = serde_json::Value::Object(metadata_map);
             .send()
             .await?;
 
-         if response.status().is_success() {
+        if response.status().is_success() {
             let keys: UserKeys = response.json().await.map_err(ClientError::Http)?;
-            println!("api_key: {}", keys.api_key);
-            println!("secret_key: {}", keys.secret_key);
-            Ok(())
+            Ok(keys)
         } else {
             let status_code = response.status().as_u16();
-            let message = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let message = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             Err(self.map_http_error(status_code, message))
         }
     }
