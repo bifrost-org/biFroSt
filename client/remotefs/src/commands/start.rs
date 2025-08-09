@@ -33,15 +33,15 @@ pub async fn run() {
     let mount_point_clone = config.mount_point.clone();
 
     let mount_task = tokio::task::spawn_blocking(move || {
-        println!("📡 Avvio mount2 in spawn_blocking...");
+        println!("📡 Start mount2 in spawn_blocking...");
         mount2(filesystem, &mount_point_clone, &options)
     });
 
     // ✅ WAIT RESULT
     match mount_task.await {
-        Ok(Ok(())) => println!("✅ Mount terminato"),
-        Ok(Err(e)) => eprintln!("❌ Errore mount: {}", e),
-        Err(e) => eprintln!("❌ Errore task: {}", e),
+        Ok(Ok(())) => println!("✅ Mount ended"),
+        Ok(Err(e)) => eprintln!("❌ Mount error: {}", e),
+        Err(e) => eprintln!("❌ Task error: {}", e),
     }
 }
 
@@ -78,13 +78,6 @@ fn prepare_mount_point(mount_point: &PathBuf) {
         let _ = std::process::Command::new("rmdir")
             .arg(mount_point)
             .output();
-
-        // ✅ FORZA INVALIDAZIONE CACHE DIRECTORY PADRE
-        // println!("🧹 Forza invalidazione cache directory padre...");
-        // invalidate_directory_cache(parent_dir);
-
-        // Attendi stabilizzazione più lunga
-        std::thread::sleep(std::time::Duration::from_millis(1000));
     } else {
         println!("📁 Mount point not found in parent directory");
     }
@@ -94,8 +87,6 @@ fn prepare_mount_point(mount_point: &PathBuf) {
     match std::fs::create_dir_all(mount_point) {
         Ok(_) => {
             println!("✅ Directory mount created");
-
-            invalidate_directory_cache(parent_dir);
         }
         Err(e) => {
             eprintln!("❌ Error in creating directory: {}", e);
@@ -107,7 +98,6 @@ fn prepare_mount_point(mount_point: &PathBuf) {
 fn check_if_mount_point_exists_in_parent(parent_dir: &std::path::Path, dir_name: &str) -> bool {
     println!("🔍 Searching for '{}' in {:?}", dir_name, parent_dir);
 
-    // Method 1: reading directory
     match std::fs::read_dir(parent_dir) {
         Ok(entries) => {
             for entry in entries.flatten() {
@@ -125,64 +115,5 @@ fn check_if_mount_point_exists_in_parent(parent_dir: &std::path::Path, dir_name:
         }
     }
 
-    // Method 2: ls command as fallback
-    match std::process::Command::new("ls")
-        .arg("-1") // One column
-        .arg(parent_dir)
-        .output()
-    {
-        Ok(output) if output.status.success() => {
-            let ls_output = String::from_utf8_lossy(&output.stdout);
-            for line in ls_output.lines() {
-                if line.trim() == dir_name {
-                    println!("  ✅ '{}' found with ls", dir_name);
-                    return true;
-                }
-            }
-            println!("  ❌ '{}' found with ls", dir_name);
-        }
-        Ok(output) => {
-            println!(
-                "  ⚠️ ls failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        Err(e) => {
-            println!("  ⚠️ Error ls: {}", e);
-        }
-    }
-
-    // Method 3: test direct path
-    let full_path = parent_dir.join(dir_name);
-    if full_path.exists() {
-        println!("  ✅ '{}' found with path.exists", dir_name);
-        return true;
-    }
-
-    println!("  ❌ '{}' not found with any method", dir_name);
     false
-}
-
-fn invalidate_directory_cache(dir_path: &std::path::Path) {
-    println!("🧹 Invalidazione cache per: {:?}", dir_path);
-
-    // Metodo 1: sync per forzare flush filesystem
-    let _ = std::process::Command::new("sync").output();
-
-    // Metodo 2: touch directory per aggiornare timestamp
-    let _ = std::process::Command::new("touch").arg(dir_path).output();
-
-    // Metodo 3: ls directory per forzare refresh cache
-    let _ = std::process::Command::new("ls")
-        .arg("-la")
-        .arg(dir_path)
-        .output();
-
-    // Metodo 4: drop cache VFS (richiede root, ma proviamo)
-    let _ = std::process::Command::new("sh")
-        .arg("-c")
-        .arg("echo 2 > /proc/sys/vm/drop_caches 2>/dev/null || true")
-        .output();
-
-    println!("✅ Cache invalidation completata");
 }

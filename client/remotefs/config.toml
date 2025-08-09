@@ -1,8 +1,8 @@
 # Remote server parameters
-# server_url = "http://localhost"
-server_url = "https://bifrost.oberon-server.it"
-#port = 3000
-port = 443
+server_url = "http://localhost"
+#server_url = "https://bifrost.oberon-server.it"
+port = 3000
+#port = 443
 
 # local filesystem mount point (absolute path)
 mount_point = "/mnt/bifrost"
