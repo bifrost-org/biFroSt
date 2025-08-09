@@ -161,7 +161,7 @@ filesRouter.delete(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const filePath = getPath(USER_PATH, req.params.path);
-      const stat = await fs.stat(filePath);
+      const stat = await fs.lstat(filePath);
 
       if (stat.isDirectory()) {
         await fs.rmdir(filePath);
@@ -191,7 +191,7 @@ filesRouter.get(
     try {
       const entryPath = getPath(USER_PATH, req.params.path ?? "");
 
-      const stats = await fs.stat(entryPath);
+      const stats = await fs.lstat(entryPath);
 
       // if the entry is a file, the output will be an array with a single object containing its metadata
       if (!stats.isDirectory()) {
@@ -200,6 +200,20 @@ filesRouter.get(
           withFileTypes: true,
         });
         const entry = entries.find((e) => e.name === path.basename(entryPath))!; // cannot be undefined
+
+        const kind = getNodeType(entry);
+        let refPath;
+        if (kind === FileType.SymLink) {
+          const refPathAbs = await fs.readlink(entryPath);
+
+          if (refPathAbs === USER_PATH) {
+            refPath = "/";
+          } else if (refPathAbs.startsWith(USER_PATH)) {
+            refPath = refPathAbs.slice(USER_PATH.length);
+          } else {
+            refPath = refPathAbs; // outside the namespace
+          }
+        }
         const fsEntry: FileAttr = {
           name: entry.name,
           size: stats.size,
@@ -207,7 +221,8 @@ filesRouter.get(
           mtime: stats.mtime.toISOString(),
           ctime: stats.ctime.toISOString(),
           crtime: stats.birthtime.toISOString(),
-          kind: getNodeType(entry),
+          kind,
+          refPath,
           perm: (stats.mode & 0o777).toString(8), // octal mask to isolate permissions bits
           nlink: stats.nlink,
         };
@@ -221,23 +236,19 @@ filesRouter.get(
       const result = await Promise.all(
         entries.map(async (entry) => {
           const entryPath = getPath(dirPath, entry.name);
-          const stats = await fs.stat(entryPath);
+          const stats = await fs.lstat(entryPath);
 
           const kind = getNodeType(entry);
           let refPath;
           if (kind === FileType.SymLink) {
-            try {
-              const refPathAbs = await fs.readlink(entryPath);
+            const refPathAbs = await fs.readlink(entryPath);
 
-              if (refPathAbs === USER_PATH) {
-                refPath = "/";
-              } else if (refPathAbs.startsWith(USER_PATH)) {
-                refPath = refPathAbs.slice(USER_PATH.length);
-              } else {
-                refPath = refPathAbs; // outside the namespace
-              }
-            } catch {
-              refPath = undefined; // broken link
+            if (refPathAbs === USER_PATH) {
+              refPath = "/";
+            } else if (refPathAbs.startsWith(USER_PATH)) {
+              refPath = refPathAbs.slice(USER_PATH.length);
+            } else {
+              refPath = refPathAbs; // outside the namespace
             }
           }
 
