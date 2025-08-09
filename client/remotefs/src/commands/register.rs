@@ -1,23 +1,21 @@
 use std::fs;
 
 use remotefs::api::client::RemoteClient;
-use remotefs::api::models::UserKeys;
 use remotefs::config::settings::Config;
-use users::get_current_username;
+use remotefs::util::auth::UserKeys;
+use remotefs::util::path::get_current_user;
 
 pub async fn run() {
     let config = Config::from_file().expect("Loading configuration failed");
 
     println!("\nBegin registration:");
 
-    let username_osstr = get_current_username().expect("Cannot get current username");
-    let username = username_osstr.to_string_lossy();
-    println!("  Current user detected: {}", username);
+    let username = get_current_user();
 
     let client = RemoteClient::new(&config);
 
     let user_keys: UserKeys = client
-        .user_registration(&username)
+        .user_registration(username.clone())
         .await
         .expect("User registration failed");
 

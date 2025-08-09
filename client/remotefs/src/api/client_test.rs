@@ -1,8 +1,9 @@
+/*
 use super::client::{ClientError, RemoteClient};
 use super::models::{FileContent, WriteRequest};
 use crate::config::settings::Config;
 use std::time::Duration;
-/* 
+
 #[cfg(test)]
 mod tests {
     use crate::api::models::{FileKind, Mode};

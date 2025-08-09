@@ -1,9 +1,8 @@
-use chrono::offset;
-use libc::remove;
 use serde_json::json;
 
 use crate::api::models::*;
 use crate::config::settings::Config;
+use crate::util::auth::UserKeys;
 use std::time::Duration;
 
 pub struct RemoteClient {
@@ -628,10 +627,16 @@ impl RemoteClient {
     pub async fn delete(&self, path: &str) -> Result<(), ClientError> {
         let url = self.build_url("/files", Some(path));
 
+        let user_keys = UserKeys::default();
+        let hmac_message = user_keys.build_hmac_message("DELETE", &url, None);
+        println!("HMAC message: {}", hmac_message);
+        let headers = user_keys.get_auth_headers(hmac_message);
+        println!("Headers: {:?}", headers);
+
         let response = self
             .http_client
             .delete(&url)
-            .headers(self.auth_headers())
+            .headers(headers)
             .send()
             .await?;
 
@@ -639,7 +644,7 @@ impl RemoteClient {
     }
 
     // user registration
-    pub async fn user_registration(&self, username: &str) -> Result<UserKeys, ClientError> {
+    pub async fn user_registration(&self, username: String) -> Result<UserKeys, ClientError> {
         let url = format!("{}{}", self.base_url, "/users");
 
         let request_body = RegisterRequest { username };

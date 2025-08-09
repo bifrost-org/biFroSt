@@ -3,7 +3,15 @@ mod commands;
 
 #[derive(Parser)]
 #[command(name = "bifrost")]
-#[command(about = "A remote filesystem", long_about = None)] // TODO:
+#[command(
+    about = "A remote filesystem client",
+    long_about = r#"
+        Bifrost is a remote filesystem client that communicates with a server via HTTPS.
+        It supports:
+        • User registration and authentication via HMAC
+        • Remote read/write operations
+    "#
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
