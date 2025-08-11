@@ -40,6 +40,8 @@ class User {
     this.homePath = homePath;
   }
 
+  private static userCache: Map<string, User> = new Map();
+
   private static fromDatabaseRow(dbRow: UserDbRow): User {
     const {
       username,
@@ -80,7 +82,10 @@ class User {
     return await this.getUser(apiKey); // check new user and return it
   }
 
+  // cached query response
   static async getUser(apiKey: string): Promise<User | undefined> {
+    if (this.userCache.has(apiKey)) return this.userCache.get(apiKey);
+
     const result = await Database.query(
       `SELECT * FROM "user" WHERE api_key = $1`,
       [apiKey]
@@ -89,7 +94,11 @@ class User {
     const userRow = result.rows[0];
     if (!userRow) return undefined;
 
-    return User.fromDatabaseRow(userRow);
+    const user = User.fromDatabaseRow(userRow);
+
+    this.userCache.set(apiKey, user);
+
+    return user;
   }
 }
 

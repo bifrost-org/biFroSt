@@ -1,16 +1,13 @@
+use reqwest::header::HeaderMap;
 use serde_json::json;
 
 use crate::api::models::*;
 use crate::config::settings::Config;
 use crate::util::auth::UserKeys;
+use crate::util::date::format_datetime;
+use crate::util::fs::format_permissions;
+use crate::util::path::{get_file_name, get_parent_path};
 use std::time::Duration;
-
-pub struct RemoteClient {
-    base_url: String,             // URL del server (es. "http://localhost:8080")
-    auth_token: Option<String>,   // Token JWT per autenticazione
-    http_client: reqwest::Client, // Client HTTP per le richieste
-    timeout: Duration,            // Timeout per le richieste
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -32,134 +29,12 @@ pub enum ClientError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 }
-/// Converte permessi da formato stringa a numero ottale stringa
-fn format_permissions(perm: &str) -> String {
-    // Se è già in formato ottale valido (3 cifre), restituiscilo
-    if perm.len() == 3 && perm.chars().all(|c| c.is_ascii_digit() && c <= '7') {
-        return perm.to_string();
-    }
 
-    // Conversione da formato simbolico rwx a ottale
-    if perm.len() == 9 && (perm.starts_with('r') || perm.starts_with('-')) {
-        return symbolic_to_octal(perm);
-    }
-
-    // Se è un numero decimale, convertilo in ottale
-    if let Ok(decimal_perm) = perm.parse::<u32>() {
-        // Se è già in formato ottale (cifre <= 7), restituiscilo
-        if decimal_perm <= 777 && decimal_perm.to_string().chars().all(|c| c <= '7') {
-            return format!("{:03}", decimal_perm);
-        }
-        // Altrimenti converte da decimale a ottale
-        return format!("{:03o}", decimal_perm);
-    }
-
-    // Conversioni per formati comuni
-    match perm {
-        "rw-r--r--" => "644",
-        "rwxr-xr-x" => "755",
-        "rw-------" => "600",
-        "rwxrwxrwx" => "777",
-        "r--r--r--" => "444",
-        "rwxrwxr-x" => "775",
-        _ => "644", // Fallback sicuro
-    }
-    .to_string()
-}
-
-/// Converte permessi simbolici (rwxrwxrwx) in ottale
-fn symbolic_to_octal(symbolic: &str) -> String {
-    let mut octal = 0;
-
-    // Owner (primi 3 caratteri)
-    if symbolic.chars().nth(0) == Some('r') {
-        octal += 400;
-    }
-    if symbolic.chars().nth(1) == Some('w') {
-        octal += 200;
-    }
-    if symbolic.chars().nth(2) == Some('x') {
-        octal += 100;
-    }
-
-    // Group (caratteri 3-5)
-    if symbolic.chars().nth(3) == Some('r') {
-        octal += 40;
-    }
-    if symbolic.chars().nth(4) == Some('w') {
-        octal += 20;
-    }
-    if symbolic.chars().nth(5) == Some('x') {
-        octal += 10;
-    }
-
-    // Other (caratteri 6-8)
-    if symbolic.chars().nth(6) == Some('r') {
-        octal += 4;
-    }
-    if symbolic.chars().nth(7) == Some('w') {
-        octal += 2;
-    }
-    if symbolic.chars().nth(8) == Some('x') {
-        octal += 1;
-    }
-
-    format!("{:03o}", octal)
-}
-/// Converte datetime ISO in formato richiesto dal server
-fn format_datetime(iso_datetime: &str) -> String {
-    // Prova a parsare il datetime ISO
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(iso_datetime) {
-        // Converti in UTC e formatta nel formato richiesto
-        dt.with_timezone(&chrono::Utc)
-            .format("%Y-%m-%dT%H:%M:%S.000Z")
-            .to_string()
-    } else {
-        // Fallback: genera datetime corrente nel formato giusto
-        chrono::Utc::now()
-            .format("%Y-%m-%dT%H:%M:%S.000Z")
-            .to_string()
-    }
-}
-
-// Funzioni helper per gestire i path
-fn remove_last_part(path: &str) -> String {
-    if path == "/" {
-        return "/".to_string();
-    }
-
-    // Rimuovi trailing slash se presente
-    let clean_path = path.trim_end_matches('/');
-
-    // Se il path inizia con '/', trova l'ultimo '/'
-    if let Some(last_slash) = clean_path.rfind('/') {
-        if last_slash == 0 {
-            // Se l'ultimo slash è all'inizio, siamo nella root
-            "/".to_string()
-        } else {
-            clean_path[..last_slash].to_string()
-        }
-    } else {
-        // Nessun slash trovato, restituisci root
-        "/".to_string()
-    }
-}
-
-fn take_last_part(path: &str) -> String {
-    if path == "/" {
-        return "".to_string();
-    }
-
-    // Rimuovi trailing slash se presente
-    let clean_path = path.trim_end_matches('/');
-
-    // Trova l'ultimo '/' e prendi tutto quello che segue
-    if let Some(last_slash) = clean_path.rfind('/') {
-        clean_path[last_slash + 1..].to_string()
-    } else {
-        // Nessun slash, restituisci l'intero path
-        clean_path.to_string()
-    }
+pub struct RemoteClient {
+    base_url: String,
+    http_client: reqwest::Client,
+    user_keys: UserKeys,
+    timeout: Duration,
 }
 
 impl RemoteClient {
@@ -171,25 +46,24 @@ impl RemoteClient {
 
         Self {
             base_url: config.server_full_url(),
-            auth_token: None,
             http_client,
+            user_keys: UserKeys::default(),
             timeout: config.timeout,
         }
     }
 
-    // Costruisce URL completo per un endpoint con path parameter opzionale
-    fn build_url(&self, base_route: &str, path_param: Option<&str>) -> String {
-        match path_param {
-            Some(param) => {
-                // Se c'è un path parameter, codificalo completamente
-                let encoded_param = urlencoding::encode(param.trim_start_matches('/'));
-                format!("{}{}/{}", self.base_url, base_route, encoded_param)
+    fn build_path(&self, base: &str, extra: Option<&str>) -> String {
+        match extra {
+            Some(p) if !p.is_empty() => {
+                let encoded = urlencoding::encode(p.trim_start_matches('/'));
+                format!("{}/{}", base.trim_end_matches('/'), encoded)
             }
-            None => {
-                // Se non c'è path parameter, usa solo il base route
-                format!("{}{}", self.base_url, base_route)
-            }
+            _ => base.trim_end_matches('/').to_string(),
         }
+    }
+
+    fn build_url(&self, path: &str) -> String {
+        format!("{}{}", self.base_url.trim_end_matches('/'), path)
     }
 
     async fn handle_response<T>(&self, response: reqwest::Response) -> Result<T, ClientError>
@@ -209,7 +83,6 @@ impl RemoteClient {
         }
     }
 
-    // Gestisce risposte senza dati (solo success/error)
     async fn handle_empty_response(&self, response: reqwest::Response) -> Result<(), ClientError> {
         let status = response.status();
 
@@ -224,7 +97,6 @@ impl RemoteClient {
         }
     }
 
-    // Mappa errori HTTP a errori specifici
     fn map_http_error(&self, status: u16, message: String) -> ClientError {
         match status {
             404 => ClientError::NotFound {
@@ -235,20 +107,11 @@ impl RemoteClient {
         }
     }
 
-    // Crea headers con autenticazione
-    fn auth_headers(&self) -> reqwest::header::HeaderMap {
-        let mut headers = reqwest::header::HeaderMap::new();
-
-        if let Some(token) = &self.auth_token {
-            let auth_value = format!("Bearer {}", token);
-            headers.insert(reqwest::header::AUTHORIZATION, auth_value.parse().unwrap());
-        }
-
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            "application/json".parse().unwrap(),
-        );
-
+    fn get_headers(&self, method: &str, route_path: &str, body: Option<&str>) -> HeaderMap {
+        let hmac_message = self.user_keys.build_hmac_message(method, route_path, body);
+        println!("HMAC message: {}", hmac_message);
+        let headers = self.user_keys.get_auth_headers(hmac_message);
+        println!("Headers: {:?}", headers);
         headers
     }
 
@@ -278,8 +141,8 @@ impl RemoteClient {
         }
 
         // ✅ STRATEGIA CORRETTA: Separa parent directory e nome file
-        let parent_path = remove_last_part(path);
-        let file_name = take_last_part(path);
+        let parent_path = get_parent_path(path);
+        let file_name = get_file_name(path);
 
         println!(
             "🔍 [METADATA] Cerco file '{}' nella directory '{}'",
@@ -312,16 +175,12 @@ impl RemoteClient {
     pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
         println!("📁 [LIST_DIR] Inizio list_directory per path: '{}'", path);
 
-        // Costruisci URL - gestisci correttamente la root
-        let url = if path == "/" {
-            format!("{}/list/", self.base_url)
-        } else {
-            self.build_url("/list", Some(path))
-        };
+        let route_path = self.build_path("/list", Some(path));
+        let url = self.build_url(&route_path);
 
         println!("📁 [LIST_DIR] URL costruito: {}", url);
 
-        let headers = self.auth_headers();
+        let headers = self.get_headers("GET", &route_path, None);
 
         let response = match self
             .http_client
@@ -411,8 +270,8 @@ impl RemoteClient {
             path, offset, size
         );
 
-        // 1. Costruisci URL base
-        let mut url = self.build_url("/files", Some(path));
+        let route_path = self.build_path("/files", Some(path));
+        let mut url = self.build_url(&route_path);
 
         // 2. Aggiungi query parameters per offset e size
         let mut query_params = Vec::new();
@@ -432,10 +291,13 @@ impl RemoteClient {
 
         println!("📖 [READ_FILE] URL finale: {}", url);
 
+        // TODO: maybe add query params
+        let headers = self.get_headers("GET", &route_path, None);
+
         let response = self
             .http_client
             .get(&url)
-            .headers(self.auth_headers())
+            .headers(headers)
             .timeout(self.timeout)
             .send()
             .await
@@ -469,8 +331,8 @@ impl RemoteClient {
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         println!("🔍 [INIZIO] write_file con path={}", write_request.path);
 
-        // Codifica il path per route parameter
-        let url = self.build_url("/files", Some(&write_request.path));
+        let route_path = self.build_path("/files", Some(&write_request.path));
+        let url = self.build_url(&route_path);
 
         println!("🔍 [URL] URL costruito: {}", url);
 
@@ -541,8 +403,9 @@ impl RemoteClient {
 
         println!("✅ [FORM] Form multipart creato");
 
+        // TODO: what to put in body?
         // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
-        let mut headers = self.auth_headers();
+        let mut headers = self.get_headers("PUT", &route_path, None);
         headers.remove(reqwest::header::CONTENT_TYPE);
         println!("🔍 [HEADERS] Headers finali: {:?}", headers);
 
@@ -611,27 +474,22 @@ impl RemoteClient {
     }
     // Crea directory
     pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
-        let url = self.build_url("/mkdir", Some(path));
+        let route_path = self.build_path("/mkdir", Some(path));
+        let url = self.build_url(&route_path);
 
-        let response = self
-            .http_client
-            .post(&url)
-            .headers(self.auth_headers())
-            .send()
-            .await?;
+        let headers = self.get_headers("POST", &route_path, None);
+
+        let response = self.http_client.post(&url).headers(headers).send().await?;
 
         self.handle_empty_response(response).await
     }
 
     // Elimina file o directory
     pub async fn delete(&self, path: &str) -> Result<(), ClientError> {
-        let url = self.build_url("/files", Some(path));
+        let route_path = self.build_path("/files", Some(path));
+        let url = self.build_url(&route_path);
 
-        let user_keys = UserKeys::default();
-        let hmac_message = user_keys.build_hmac_message("DELETE", &url, None);
-        println!("HMAC message: {}", hmac_message);
-        let headers = user_keys.get_auth_headers(hmac_message);
-        println!("Headers: {:?}", headers);
+        let headers = self.get_headers("DELETE", &route_path, None);
 
         let response = self
             .http_client
@@ -645,7 +503,8 @@ impl RemoteClient {
 
     // user registration
     pub async fn user_registration(&self, username: String) -> Result<UserKeys, ClientError> {
-        let url = format!("{}{}", self.base_url, "/users");
+        let route_path = self.build_path("/users", None);
+        let url = self.build_url(&route_path);
 
         let request_body = RegisterRequest { username };
 
