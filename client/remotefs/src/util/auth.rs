@@ -6,7 +6,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::fs;
 
-use crate::util::path::get_current_user;
+use crate::util::fs::get_current_user;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -14,7 +14,8 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct UserKeys {
     pub api_key: String,
     pub secret_key: String,
-    timestamp: i64,
+    #[serde(default)]
+    timestamp: Option<i64>,
 }
 
 impl UserKeys {
@@ -36,17 +37,17 @@ impl UserKeys {
         Ok(UserKeys {
             api_key,
             secret_key,
-            timestamp,
+            timestamp: Some(timestamp),
         })
     }
 
     pub fn get_auth_headers(&self, hmac_message: String) -> HeaderMap {
         let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", HeaderValue::from_str(&self.api_key).unwrap());
-        headers.insert("x-signature", HeaderValue::from_str(&hmac_message).unwrap());
+        headers.insert("X-Api-Key", HeaderValue::from_str(&self.api_key).unwrap());
+        headers.insert("X-Signature", HeaderValue::from_str(&hmac_message).unwrap());
         headers.insert(
-            "x-timestamp",
-            HeaderValue::from_str(&self.timestamp.to_string()).unwrap(),
+            "X-Timestamp",
+            HeaderValue::from_str(&self.timestamp.unwrap_or(0).to_string()).unwrap(),
         );
         headers
     }
@@ -60,13 +61,22 @@ impl UserKeys {
             "".to_string()
         };
 
-        let message = format!(
-            "{}\n{}\n{}\n{}",
-            method.to_uppercase(),
-            path,
-            self.timestamp,
-            body_hash
-        );
+        let message = if body_hash.is_empty() {
+            format!(
+                "{}\n{}\n{}",
+                method.to_uppercase(),
+                path,
+                self.timestamp.unwrap_or(0)
+            )
+        } else {
+            format!(
+                "{}\n{}\n{}\n{}",
+                method.to_uppercase(),
+                path,
+                self.timestamp.unwrap_or(0),
+                body_hash
+            )
+        };
 
         println!("Message: {}", message);
 

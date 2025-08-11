@@ -11,4 +11,8 @@ export class UserError extends Error {
   static RegistrationFailed(message = "User registration failed") {
     return new UserError(message, StatusCodes.BAD_REQUEST);
   }
+
+  static Unauthorized(message = "User does not exist or invalid API key") {
+    return new UserError(message, StatusCodes.UNAUTHORIZED);
+  }
 }

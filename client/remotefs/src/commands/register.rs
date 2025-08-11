@@ -3,7 +3,7 @@ use std::fs;
 use remotefs::api::client::RemoteClient;
 use remotefs::config::settings::Config;
 use remotefs::util::auth::UserKeys;
-use remotefs::util::path::get_current_user;
+use remotefs::util::fs::get_current_user;
 
 pub async fn run() {
     let config = Config::from_file().expect("Loading configuration failed");

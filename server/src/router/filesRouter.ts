@@ -10,6 +10,7 @@ import {
 } from "../middleware/validation";
 import { MetadataPut } from "../validation/metadataSchema";
 import { getPath, USER_PATH } from "../utils/path";
+import { checkAuth } from "../middleware/authentication";
 
 export const filesRouter: Router = Router();
 
@@ -17,6 +18,7 @@ export const filesRouter: Router = Router();
 filesRouter.get(
   "/files/:path?",
   validatePathParameter(false),
+  checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const filePath = getPath(USER_PATH, req.params.path);
@@ -38,6 +40,7 @@ filesRouter.put(
   "/files/:path?",
   validatePathParameter(false),
   validateMultipartMetadata,
+  //checkAuth, FIXME:
   async (req: Request, res: Response, next: NextFunction) => {
     const currentPath = req.params.path;
     const { metadata, content } = req.body as {
@@ -158,6 +161,7 @@ filesRouter.put(
 filesRouter.delete(
   "/files/:path?",
   validatePathParameter(false),
+  checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const filePath = getPath(USER_PATH, req.params.path);
@@ -187,6 +191,7 @@ filesRouter.delete(
 filesRouter.get(
   "/list/:path?",
   validatePathParameter(true),
+  checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const entryPath = getPath(USER_PATH, req.params.path ?? "");
@@ -285,6 +290,7 @@ filesRouter.get(
 filesRouter.post(
   "/mkdir/:path?",
   validatePathParameter(false),
+  checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const dirPath = getPath(USER_PATH, req.params.path);
