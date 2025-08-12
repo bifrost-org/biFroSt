@@ -12,7 +12,7 @@ async fn main() {
     let config = Config {
         server_url: "https://bifrost.oberon-server.it".to_string(),
         port: 443,
-        mount_point: PathBuf::from("/tmp/remotefs_mount32"),
+mount_point: PathBuf::from("/home/francesco/remotefs_mount"), // ✅ CAMBIA QUESTA RIGA
         api_key: None,
         username: None,
         password: None,

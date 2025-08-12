@@ -1,3 +1,4 @@
+use chrono::DateTime;
 use fuser::{FileAttr, FileType};
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 
@@ -106,9 +107,22 @@ fn symbolic_to_octal(symbolic: &str) -> u16 {
 
 pub fn from_metadata(new_inode: u64, metadata: &MetaFile) -> FileAttr {
     let parse_timestamp = |timestamp_str: &str| -> SystemTime {
-        timestamp_str.parse::<u64>()
-            .map(|secs| UNIX_EPOCH + Duration::from_secs(secs))
-            .unwrap_or(SystemTime::now())
+        // ✅ FIX: Prima prova ISO8601, poi fallback a Unix timestamp
+        
+        // Prova a parsare come ISO8601 (formato attuale del server)
+        if let Ok(dt) = DateTime::parse_from_rfc3339(timestamp_str) {
+            let unix_timestamp = dt.timestamp() as u64;
+            let nanos = dt.timestamp_subsec_nanos();
+            return UNIX_EPOCH + Duration::new(unix_timestamp, nanos);
+        }
+        
+        // Fallback: prova a parsare come Unix timestamp numerico
+        if let Ok(secs) = timestamp_str.parse::<u64>() {
+            return UNIX_EPOCH + Duration::from_secs(secs);
+        }
+        
+        // Ultimo fallback
+        SystemTime::now()
     };
 
     FileAttr {
