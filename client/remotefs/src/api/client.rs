@@ -11,6 +11,7 @@ pub struct RemoteClient {
     auth_token: Option<String>,   // Token JWT per autenticazione
     http_client: reqwest::Client, // Client HTTP per le richieste
     timeout: Duration,            // Timeout per le richieste
+    pub path_mounting: String,       // Path di mounting
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -156,6 +157,7 @@ impl RemoteClient {
             auth_token: None,
             http_client,
             timeout: config.timeout,
+            path_mounting: config.mount_point.to_string_lossy().to_string(),
         }
     }
 
@@ -236,14 +238,10 @@ impl RemoteClient {
 
     // Ottieni metadati di un singolo file/directory
     pub async fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
-        println!(
-            "🔍 [METADATA] Inizio get_file_metadata per path: '{}'",
-            path
-        );
+
 
         // ✅ CASO SPECIALE: ROOT DIRECTORY
         if path == "/" {
-            println!("🏠 [METADATA] Root directory richiesta - generando metadati sintetici");
             let now_iso = chrono::Utc::now().to_rfc3339();
             return Ok(MetaFile {
                 name: "/".to_string(),
@@ -263,36 +261,26 @@ impl RemoteClient {
         let parent_path = remove_last_part(path);
         let file_name = take_last_part(path);
 
-        println!(
-            "🔍 [METADATA] Cerco file '{}' nella directory '{}'",
-            file_name, parent_path
-        );
+
 
         // Lista la directory padre
         let parent_listing = self.list_directory(&parent_path).await?;
 
         // Cerca il file specifico nella lista
         if let Some(found_file) = parent_listing.files.iter().find(|f| f.name == file_name) {
-            println!(
-                "✅ [METADATA] File '{}' trovato nella directory '{}'!",
-                file_name, parent_path
-            );
+
             let mut result = found_file.clone();
             result.name = path.to_string(); // Mantieni il path completo
             return Ok(result);
         }
 
-        println!(
-            "❌ [METADATA] File '{}' non trovato nella directory '{}'",
-            file_name, parent_path
-        );
+
         Err(ClientError::NotFound {
             path: path.to_string(),
         })
     }
 
     pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
-        println!("📁 [LIST_DIR] Inizio list_directory per path: '{}'", path);
 
         // Costruisci URL - gestisci correttamente la root
         let url = if path == "/" {
@@ -300,8 +288,6 @@ impl RemoteClient {
         } else {
             self.build_url("/list", Some(path))
         };
-
-        println!("📁 [LIST_DIR] URL costruito: {}", url);
 
         let headers = self.auth_headers();
 
@@ -314,7 +300,7 @@ impl RemoteClient {
             .await
         {
             Ok(r) => {
-                println!("✅ [LIST_DIR] Risposta ricevuta: status={}", r.status());
+                
                 r
             }
             Err(e) => {
@@ -331,7 +317,6 @@ impl RemoteClient {
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
 
-            println!("❌ [LIST_DIR] Errore HTTP {}: {}", status_code, message);
 
             return Err(match status_code {
                 404 => ClientError::NotFound {
@@ -348,36 +333,17 @@ impl RemoteClient {
         // Deserializza direttamente come Vec<MetaFile>
         let files: Vec<MetaFile> = match response.json::<Vec<MetaFile>>().await {
             Ok(f) => {
-                println!("✅ [LIST_DIR] Parsing completato: {} file trovati", f.len());
                 f
             }
             Err(e) => {
-                println!("❌ [LIST_DIR] Errore nel parsing della risposta: {:?}", e);
                 return Err(ClientError::Http(e));
             }
         };
 
-        // Log dettagli dei file ricevuti
-        for (i, file) in files.iter().enumerate() {
-            println!(
-                "  {}. '{}' ({}, {} bytes, kind: {:?})",
-                i + 1,
-                file.name,
-                match file.kind {
-                    FileKind::Directory => "DIR",
-                    FileKind::RegularFile => "FILE",
-                    FileKind::Symlink => "SYMLINK",
-                    FileKind::Hardlink => "HARDLINK",
-                },
-                file.size,
-                file.kind
-            );
-        }
 
         // Crea DirectoryListing - MANTIENI i nomi originali dall'API
         let directory_listing = DirectoryListing { files };
 
-        println!("✅ [LIST_DIR] Completato con successo per path: '{}'", path);
         Ok(directory_listing)
     }
 
@@ -413,7 +379,6 @@ impl RemoteClient {
             url = format!("{}?{}", url, query_params.join("&"));
         }
 
-        println!("📖 [READ_FILE] URL finale: {}", url);
 
         let response = self
             .http_client
@@ -433,7 +398,6 @@ impl RemoteClient {
         // 2. Gestisci risposta binaria, non JSON
         if response.status().is_success() {
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-            println!("✅ [READ_FILE] Letti {} bytes", data.len());
             Ok(FileContent { data })
         } else {
             let message = response
@@ -449,72 +413,162 @@ impl RemoteClient {
         }
     }
     // Scrivi file (usando multipart/form-data come richiesto dall'API)
+    // ...existing code...
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         println!("🔍 [INIZIO] write_file con path={}", write_request.path);
+
+        // === VALIDAZIONE PRE-RICHIESTA SECONDO SPEC ===
+        // 1. Validazione refPath per soft/hard link
+        match write_request.kind {
+            FileKind::Symlink | FileKind::Hardlink => {
+                if write_request.ref_path.is_none() {
+                    println!("❌ [WRITE_FILE] refPath mancante per link");
+                    return Err(ClientError::Server {
+                        status: 400,
+                        message: "refPath required for link types".into(),
+                    });
+                }
+            }
+            _ => {}
+        }
+
+        // 2. Validazione mode / contenuto / offset
+        let has_content = write_request.data.as_ref().map(|d| !d.is_empty()).unwrap_or(false);
+        match write_request.mode {
+            Mode::Write => {
+                // content opzionale (metadata-only update permesso)
+                // size deve riflettere i bytes del content se presente
+                if has_content && (write_request.size as usize) != write_request.data.as_ref().unwrap().len() {
+                    println!("❌ [WRITE_FILE] Size dichiarato ≠ content length (write)");
+                    return Err(ClientError::Server {
+                        status: 400,
+                        message: "Declared size does not match content length (write)".into(),
+                    });
+                }
+            }
+            Mode::Append => {
+                if !has_content {
+                    println!("❌ [WRITE_FILE] Content richiesto in append");
+                    return Err(ClientError::Server {
+                        status: 400,
+                        message: "Content required for append".into(),
+                    });
+                }
+                if (write_request.size as usize) != write_request.data.as_ref().unwrap().len() {
+                    println!("❌ [WRITE_FILE] Size dichiarato ≠ content length (append)");
+                    return Err(ClientError::Server {
+                        status: 400,
+                        message: "Declared size does not match content length (append)".into(),
+                    });
+                }
+            }
+            Mode::WriteAt => {
+                if !has_content {
+                    println!("❌ [WRITE_FILE] Content richiesto in write_at");
+                    return Err(ClientError::Server {
+                        status: 400,
+                        message: "Content required for write_at".into(),
+                    });
+                }
+                if write_request.offset.is_none() {
+                    println!("❌ [WRITE_FILE] Offset richiesto in write_at");
+                    return Err(ClientError::Server {
+                        status: 400,
+                        message: "Offset required for write_at".into(),
+                    });
+                }
+                if (write_request.size as usize) != write_request.data.as_ref().unwrap().len() {
+                    println!("❌ [WRITE_FILE] Size dichiarato ≠ content length (write_at)");
+                    return Err(ClientError::Server {
+                        status: 400,
+                        message: "Declared size does not match content length (write_at)".into(),
+                    });
+                }
+            }
+            Mode::Truncate => {
+                // content ignorato secondo specifica
+                if has_content {
+                    println!("ℹ️ [WRITE_FILE] Content ignorato in truncate");
+                }
+                // size = dimensione finale richiesta
+            }
+        }
+
+        // 3. Normalizza il size da inviare secondo la semantica
+        let effective_size: u64 = match write_request.mode {
+            Mode::Truncate => write_request.size, // dimensione finale
+            Mode::Write | Mode::Append | Mode::WriteAt => {
+                if has_content {
+                    write_request.data.as_ref().unwrap().len() as u64
+                } else {
+                    // metadata-only update: usa size dichiarato (già validato sopra)
+                    write_request.size
+                }
+            }
+        };
+
+        // 4. Se è un link (soft/hard) e viene passato del contenuto, ignoralo
+        let send_data: Vec<u8> = match write_request.kind {
+            FileKind::Symlink | FileKind::Hardlink => {
+                if has_content {
+                    println!("ℹ️ [WRITE_FILE] Content ignorato per link");
+                }
+                Vec::new()
+            }
+            _ => write_request.data.clone().unwrap_or_default(),
+        };
 
         // Codifica il path per route parameter
         let url = self.build_url("/files", Some(&write_request.path));
 
-        println!("🔍 [URL] URL costruito: {}", url);
+        // METADATA JSON
+        println!("🔍 [DATA] Dimensione dati effettiva: {} bytes", send_data.len());
+        let mut metadata_map = serde_json::Map::new();
+        metadata_map.insert("size".to_string(), json!(effective_size));
+        metadata_map.insert("perm".to_string(), json!(format_permissions(&write_request.perm)));
+        metadata_map.insert("mtime".to_string(), json!(format_datetime(&write_request.mtime)));
+        metadata_map.insert("atime".to_string(), json!(format_datetime(&write_request.atime)));
+        metadata_map.insert("ctime".to_string(), json!(format_datetime(&write_request.ctime)));
+        metadata_map.insert("crtime".to_string(), json!(format_datetime(&write_request.crtime)));
+        metadata_map.insert("kind".to_string(), json!(write_request.kind.to_string()));
+        metadata_map.insert("mode".to_string(), json!(write_request.mode.to_string()));
 
-        // Prepara il JSON dei metadati (includi newPath se necessario)
-        let data_size = write_request.data.as_ref().map_or(0, |d| d.len());
-        println!("🔍 [DATA] Dimensione dati: {} bytes", data_size);
- let mut metadata_map = serde_json::Map::new();
+        if let Some(ref new_path) = write_request.new_path {
+            metadata_map.insert("newPath".to_string(), json!(new_path));
+        }
+        if let Some(ref ref_path) = write_request.ref_path {
+            metadata_map.insert("refPath".to_string(), json!(ref_path));
+        }
+        if let Some(ref offset) = write_request.offset {
+            if matches!(write_request.mode, Mode::WriteAt) {
+                metadata_map.insert("offset".to_string(), json!(offset));
+            }
+        }
 
-metadata_map.insert("size".to_string(), json!(data_size));
-metadata_map.insert("perm".to_string(), json!(format_permissions(&write_request.perm)));
-metadata_map.insert("mtime".to_string(), json!(format_datetime(&write_request.mtime)));
-metadata_map.insert("atime".to_string(), json!(format_datetime(&write_request.atime)));
-metadata_map.insert("ctime".to_string(), json!(format_datetime(&write_request.ctime)));
-metadata_map.insert("crtime".to_string(), json!(format_datetime(&write_request.crtime)));
-metadata_map.insert("kind".to_string(), json!(write_request.kind.to_string()));
-metadata_map.insert("mode".to_string(), json!(write_request.mode.to_string()));
-
-// ✅ Aggiungi newPath solo se non è None
-if let Some(ref new_path) = write_request.new_path {
-    metadata_map.insert("newPath".to_string(), json!(new_path));
-}
-
-// ✅ Aggiungi refPath solo se non è None  
-if let Some(ref ref_path) = write_request.ref_path {
-    metadata_map.insert("refPath".to_string(), json!(ref_path));
-}
-
-if let Some(ref offset) = write_request.offset {
-    metadata_map.insert("offset".to_string(), json!(offset));
-}
-
-let metadata_json = serde_json::Value::Object(metadata_map);
+        let metadata_json = serde_json::Value::Object(metadata_map);
         println!("🔍 [METADATA] Metadati preparati: {}", metadata_json);
 
-        // Converti metadati in stringa JSON
         let metadata_str =
             serde_json::to_string(&metadata_json).map_err(ClientError::Serialization)?;
 
         println!("🔍 [FORM] Preparazione form multipart...");
-
-        // Crea form multipart - IMPORTANTE: usa i nomi campo corretti
-        let form = reqwest::multipart::Form::new()
-            // Campo "metadata" come testo JSON
-            .text("metadata", metadata_str.clone())
-            // Campo "content" come parte binaria
-            .part(
+        let include_content = !send_data.is_empty();
+        let mut form = reqwest::multipart::Form::new().text("metadata", metadata_str.clone());
+        if include_content {
+            form = form.part(
                 "content",
-                reqwest::multipart::Part::bytes(write_request.data.clone().unwrap_or_default())
-                    .file_name("file") // Aggiungi filename se necessario
+                reqwest::multipart::Part::bytes(send_data)
+                    .file_name("file")
                     .mime_str("application/octet-stream")
                     .map_err(ClientError::Http)?,
             );
+        } else {
+            println!("ℹ️ [WRITE_FILE] Nessun contenuto: update solo metadata (permessi/timestamp)");
+        }
 
-        println!("✅ [FORM] Form multipart creato");
-
-        // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
         let mut headers = self.auth_headers();
-        headers.remove(reqwest::header::CONTENT_TYPE);
-        println!("🔍 [HEADERS] Headers finali: {:?}", headers);
+        headers.remove(reqwest::header::CONTENT_TYPE); // lasciar gestire a reqwest
 
-        println!("🔍 [REQUEST] Invio richiesta HTTP PUT...");
         let response = self
             .http_client
             .put(&url)
@@ -524,61 +578,34 @@ let metadata_json = serde_json::Value::Object(metadata_map);
             .await
             .map_err(ClientError::Http)?;
 
-        println!(
-            "✅ [RESPONSE] Risposta ricevuta: status={}",
-            response.status()
-        );
+        let status_code = response.status().as_u16();
+        println!("✅ [RESPONSE] status={}", status_code);
 
-        // ✅ AGGIUNGI DEBUG DETTAGLIATO
-        if !response.status().is_success() {
-            let status_code = response.status().as_u16();
+        if !(200..=299).contains(&status_code) {
             let error_body = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "No response body".to_string());
-
-            println!(
-                "❌ [WRITE_FILE] Errore HTTP {}: {}",
-                status_code, error_body
-            );
-
-            // Debug dettagli della richiesta per 400 Bad Request
-            if status_code == 400 || status_code == 404 {
-                println!("Metadata JSON inviato:");
-                println!("  {}", metadata_str);
-
-                if let Some(data) = &write_request.data {
-                    println!("  💾 Data length: {} bytes", data.len());
-                    if data.len() <= 100 {
-                        println!("  💾 Data content: {:?}", String::from_utf8_lossy(data));
-                    }
-                } else {
-                    println!("  💾 Data: None");
-                }
-
-
-            }
-
+            println!("❌ [WRITE_FILE] Errore HTTP {}: {}", status_code, error_body);
+            println!("Metadata JSON inviato:\n  {}", metadata_str);
             return Err(match status_code {
-                400 => ClientError::Server {
-                    status: status_code,
-                    message: format!("Bad Request: {}", error_body),
-                },
-                404 => ClientError::NotFound {
-                    path: write_request.path.clone(),
-                },
-                403 | 401 => ClientError::PermissionDenied(error_body),
-                _ => ClientError::Server {
-                    status: status_code,
-                    message: error_body,
-                },
+                400 => ClientError::Server { status: status_code, message: format!("Bad Request: {}", error_body) },
+                404 => ClientError::NotFound { path: write_request.path.clone() },
+                401 | 403 => ClientError::PermissionDenied(error_body),
+                409 => ClientError::Server { status: status_code, message: "Conflict".into() },
+                _ => ClientError::Server { status: status_code, message: error_body },
             });
         } else {
-            println!("✅ [WRITE_FILE] Richiesta completata con successo");
+            match status_code {
+                201 => println!("✅ [WRITE_FILE] Creato (201)"),
+                204 => println!("✅ [WRITE_FILE] Aggiornato / spostato (204)"),
+                _ => println!("✅ [WRITE_FILE] Success (status={})", status_code),
+            }
         }
 
         self.handle_empty_response(response).await
     }
+
     // Crea directory
     pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
         let url = self.build_url("/mkdir", Some(path));
