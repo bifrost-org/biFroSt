@@ -3,8 +3,7 @@
 # Index
 
 1. [Collection `files`](#collection-documents)
-2. [Collection `sessions`](#collection-sessions)
-3. [Collection `users`](#collection-users)
+2. [Collection `users`](#collection-users)
 
 <br/>
 
@@ -14,9 +13,9 @@ A collection representing the remote files accessible through the mounted virtua
 
 ### Supported requests
 
-- [GET `/files/{path}`](#get-filespath) – Retrieve a file
-- [PUT `/files/{path}`](#put-filespath) – Create or update a file
-- [DELETE `/files/{path}`](#delete-filespath) – Delete a file
+- [GET `/files/{path}`](#get-filespath) - Retrieve a file
+- [PUT `/files/{path}`](#put-filespath) - Create or update a file
+- [DELETE `/files/{path}`](#delete-filespath) - Delete a file
 - [GET `/list/{path}`](#get-listpath) - Retrieve the list of files inside a folder
 - [POST `/mkdir/{path}`](#post-mkdirpath) - Create a new folder
 
@@ -88,14 +87,14 @@ Raw file contents (binary).
 
 In the multipart/form-data request body, the field names must be:
 
-- `"metadata"` – containing the JSON object with metadata fields;
-- `"content"` – containing the raw binary data of the file.
+- `"metadata"` - containing the JSON object with metadata fields;
+- `"content"` - containing the raw binary data of the file.
 
 Correctly naming these fields is required for the server to correctly parse and handle the request.
 
 ### Example multipart body
 
-**Part 1 – JSON (metadata):**
+**Part 1 - JSON (metadata):**
 
 ```json
 {
@@ -108,7 +107,7 @@ Correctly naming these fields is required for the server to correctly parse and 
 }
 ```
 
-**Part 2 – Binary content:**
+**Part 2 - Binary content:**
 Raw content of the new file.
 
 ### Semantics
@@ -272,16 +271,41 @@ This endpoint does not require a request body.
 
 <br>
 
-# Collection `sessions`
-
-Handles user session management.
-
-### Supported requests
-
-<br/>
-
 # Collection `users`
 
-A collection describing the variety of users interacting with the Kiruna eXplorer system.
+A collection managing the registered users in the system.
 
 ### Supported requests
+
+- [POST `/users`](#post-users) - Register a new user
+
+## POST `/users`
+
+Registers a new user by providing a valid username. Returns an API key and a secret key. These credentials are used to authenticate the user and to cryptographically sign requests using HMAC.
+
+### Request body (JSON)
+
+| **Field**  | **Description**                                                                                                 | **Type** | **Required** |
+| ---------- | --------------------------------------------------------------------------------------------------------------- | -------- | ------------ |
+| `username` | Username to register. Must match the regex `/^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/` and will be used as a folder name. | `string` | Yes          |
+
+### Response body (JSON)
+
+```json
+{
+  "api_key": "string",
+  "secret_key": "string"
+}
+```
+
+- `api_key`: Public key used to authenticate requests.
+- `secret_key`: Secret key used for signing and HMAC authentication.
+
+### Success status
+
+- `201 Created`: User successfully registered.
+
+### Errors
+
+- `400 Bad Request`: Username missing or invalid.
+- `500 Internal Server Error`: An unexpected error occurred on the server.

@@ -1,15 +1,12 @@
-# Configurazione del server remoto
+# Remote server parameters
 server_url = "http://localhost"
-port = 8080
+#server_url = "https://bifrost.oberon-server.it"
+port = 3000
+#port = 443
 
-# Punto di mount del filesystem
-mount_point = "/mnt/remotefs"
+# local filesystem mount point (absolute path)
+mount_point = "/mnt/bifrost"
 
 # Timeout in secondi (se usi std::time::Duration) o nanosecondi (se usi chrono::Duration)
 # Per std::time::Duration: 60 secondi
 timeout = { secs = 60, nanos = 0 }
-
-# Configurazione di autenticazione (opzionale - puoi omettere questi campi)
-username = "francesco"
-password = "mypassword"
-api_key = "your-api-key-here"

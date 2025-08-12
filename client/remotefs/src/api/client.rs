@@ -1,18 +1,13 @@
-use chrono::offset;
-use libc::remove;
+use reqwest::header::HeaderMap;
 use serde_json::json;
 
 use crate::api::models::*;
 use crate::config::settings::Config;
+use crate::util::auth::UserKeys;
+use crate::util::date::format_datetime;
+use crate::util::fs::format_permissions;
+use crate::util::path::{get_file_name, get_parent_path};
 use std::time::Duration;
-
-pub struct RemoteClient {
-    base_url: String,             // URL del server (es. "http://localhost:8080")
-    auth_token: Option<String>,   // Token JWT per autenticazione
-    http_client: reqwest::Client, // Client HTTP per le richieste
-    timeout: Duration,            // Timeout per le richieste
-    pub path_mounting: String,       // Path di mounting
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -34,115 +29,13 @@ pub enum ClientError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 }
-/// Converte permessi da formato stringa a numero ottale stringa
-fn format_permissions(perm: &str) -> String {
-    // Se è già in formato ottale valido (3 cifre), restituiscilo
-    if perm.len() == 3 && perm.chars().all(|c| c.is_ascii_digit() && c <= '7') {
-        return perm.to_string();
-    }
-    
-    // Conversione da formato simbolico rwx a ottale
-    if perm.len() == 9 && (perm.starts_with('r') || perm.starts_with('-')) {
-        return symbolic_to_octal(perm);
-    }
-    
-    // Se è un numero decimale, convertilo in ottale
-    if let Ok(decimal_perm) = perm.parse::<u32>() {
-        // Se è già in formato ottale (cifre <= 7), restituiscilo
-        if decimal_perm <= 777 && decimal_perm.to_string().chars().all(|c| c <= '7') {
-            return format!("{:03}", decimal_perm);
-        }
-        // Altrimenti converte da decimale a ottale
-        return format!("{:03o}", decimal_perm);
-    }
-    
-    // Conversioni per formati comuni
-    match perm {
-        "rw-r--r--" => "644",
-        "rwxr-xr-x" => "755", 
-        "rw-------" => "600",
-        "rwxrwxrwx" => "777",
-        "r--r--r--" => "444",
-        "rwxrwxr-x" => "775",
-        _ => "644", // Fallback sicuro
-    }.to_string()
-}
 
-/// Converte permessi simbolici (rwxrwxrwx) in ottale
-fn symbolic_to_octal(symbolic: &str) -> String {
-    let mut octal = 0;
-    
-    // Owner (primi 3 caratteri)
-    if symbolic.chars().nth(0) == Some('r') { octal += 400; }
-    if symbolic.chars().nth(1) == Some('w') { octal += 200; }
-    if symbolic.chars().nth(2) == Some('x') { octal += 100; }
-    
-    // Group (caratteri 3-5)
-    if symbolic.chars().nth(3) == Some('r') { octal += 40; }
-    if symbolic.chars().nth(4) == Some('w') { octal += 20; }
-    if symbolic.chars().nth(5) == Some('x') { octal += 10; }
-    
-    // Other (caratteri 6-8)
-    if symbolic.chars().nth(6) == Some('r') { octal += 4; }
-    if symbolic.chars().nth(7) == Some('w') { octal += 2; }
-    if symbolic.chars().nth(8) == Some('x') { octal += 1; }
-    
-    format!("{:03o}", octal)
-}
-/// Converte datetime ISO in formato richiesto dal server
-fn format_datetime(iso_datetime: &str) -> String {
-    // Prova a parsare il datetime ISO
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(iso_datetime) {
-        // Converti in UTC e formatta nel formato richiesto
-        dt.with_timezone(&chrono::Utc)
-            .format("%Y-%m-%dT%H:%M:%S.000Z")
-            .to_string()
-    } else {
-        // Fallback: genera datetime corrente nel formato giusto
-        chrono::Utc::now()
-            .format("%Y-%m-%dT%H:%M:%S.000Z")
-            .to_string()
-    }
-}
-
-// Funzioni helper per gestire i path
-fn remove_last_part(path: &str) -> String {
-    if path == "/" {
-        return "/".to_string();
-    }
-
-    // Rimuovi trailing slash se presente
-    let clean_path = path.trim_end_matches('/');
-
-    // Se il path inizia con '/', trova l'ultimo '/'
-    if let Some(last_slash) = clean_path.rfind('/') {
-        if last_slash == 0 {
-            // Se l'ultimo slash è all'inizio, siamo nella root
-            "/".to_string()
-        } else {
-            clean_path[..last_slash].to_string()
-        }
-    } else {
-        // Nessun slash trovato, restituisci root
-        "/".to_string()
-    }
-}
-
-fn take_last_part(path: &str) -> String {
-    if path == "/" {
-        return "".to_string();
-    }
-
-    // Rimuovi trailing slash se presente
-    let clean_path = path.trim_end_matches('/');
-
-    // Trova l'ultimo '/' e prendi tutto quello che segue
-    if let Some(last_slash) = clean_path.rfind('/') {
-        clean_path[last_slash + 1..].to_string()
-    } else {
-        // Nessun slash, restituisci l'intero path
-        clean_path.to_string()
-    }
+pub struct RemoteClient {
+    base_url: String,
+    http_client: reqwest::Client,
+    user_keys: UserKeys,
+    timeout: Duration,
+    pub path_mounting: String,
 }
 
 impl RemoteClient {
@@ -154,26 +47,25 @@ impl RemoteClient {
 
         Self {
             base_url: config.server_full_url(),
-            auth_token: None,
             http_client,
+            user_keys: UserKeys::default(),
             timeout: config.timeout,
             path_mounting: config.mount_point.to_string_lossy().to_string(),
         }
     }
 
-    // Costruisce URL completo per un endpoint con path parameter opzionale
-    fn build_url(&self, base_route: &str, path_param: Option<&str>) -> String {
-        match path_param {
-            Some(param) => {
-                // Se c'è un path parameter, codificalo completamente
-                let encoded_param = urlencoding::encode(param.trim_start_matches('/'));
-                format!("{}{}/{}", self.base_url, base_route, encoded_param)
+    fn build_path(&self, base: &str, extra: Option<&str>) -> String {
+        match extra {
+            Some(p) if !p.is_empty() => {
+                let encoded = urlencoding::encode(p.trim_start_matches('/'));
+                format!("{}/{}", base.trim_end_matches('/'), encoded)
             }
-            None => {
-                // Se non c'è path parameter, usa solo il base route
-                format!("{}{}", self.base_url, base_route)
-            }
+            _ => base.trim_end_matches('/').to_string(),
         }
+    }
+
+    fn build_url(&self, path: &str) -> String {
+        format!("{}{}", self.base_url.trim_end_matches('/'), path)
     }
 
     async fn handle_response<T>(&self, response: reqwest::Response) -> Result<T, ClientError>
@@ -193,7 +85,6 @@ impl RemoteClient {
         }
     }
 
-    // Gestisce risposte senza dati (solo success/error)
     async fn handle_empty_response(&self, response: reqwest::Response) -> Result<(), ClientError> {
         let status = response.status();
 
@@ -208,7 +99,6 @@ impl RemoteClient {
         }
     }
 
-    // Mappa errori HTTP a errori specifici
     fn map_http_error(&self, status: u16, message: String) -> ClientError {
         match status {
             404 => ClientError::NotFound {
@@ -219,27 +109,24 @@ impl RemoteClient {
         }
     }
 
-    // Crea headers con autenticazione
-    fn auth_headers(&self) -> reqwest::header::HeaderMap {
-        let mut headers = reqwest::header::HeaderMap::new();
-
-        if let Some(token) = &self.auth_token {
-            let auth_value = format!("Bearer {}", token);
-            headers.insert(reqwest::header::AUTHORIZATION, auth_value.parse().unwrap());
-        }
-
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            "application/json".parse().unwrap(),
+    fn get_headers(&self, method: &str, route_path: &str, extra: Option<&str>) -> HeaderMap {
+        let timestamp = UserKeys::generate_timestamp();
+        let nonce = UserKeys::generate_nonce();
+        let hmac_message = self.user_keys.build_hmac_message(
+            method,
+            route_path,
+            &timestamp.to_string(),
+            &nonce,
+            extra,
         );
-
+        let headers =
+            self.user_keys
+                .get_auth_headers(&hmac_message, &timestamp.to_string(), &nonce);
         headers
     }
 
     // Ottieni metadati di un singolo file/directory
     pub async fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
-
-
         // ✅ CASO SPECIALE: ROOT DIRECTORY
         if path == "/" {
             let now_iso = chrono::Utc::now().to_rfc3339();
@@ -258,22 +145,18 @@ impl RemoteClient {
         }
 
         // ✅ STRATEGIA CORRETTA: Separa parent directory e nome file
-        let parent_path = remove_last_part(path);
-        let file_name = take_last_part(path);
-
-
+        let parent_path = get_parent_path(path);
+        let file_name = get_file_name(path);
 
         // Lista la directory padre
         let parent_listing = self.list_directory(&parent_path).await?;
 
         // Cerca il file specifico nella lista
         if let Some(found_file) = parent_listing.files.iter().find(|f| f.name == file_name) {
-
             let mut result = found_file.clone();
             result.name = path.to_string(); // Mantieni il path completo
             return Ok(result);
         }
-
 
         Err(ClientError::NotFound {
             path: path.to_string(),
@@ -281,15 +164,12 @@ impl RemoteClient {
     }
 
     pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
+        let route_path = self.build_path("/list", Some(path));
+        let url = self.build_url(&route_path);
 
-        // Costruisci URL - gestisci correttamente la root
-        let url = if path == "/" {
-            format!("{}/list/", self.base_url)
-        } else {
-            self.build_url("/list", Some(path))
-        };
+        println!("📁 [LIST_DIR] URL costruito: {}", url);
 
-        let headers = self.auth_headers();
+        let headers = self.get_headers("GET", &route_path, None);
 
         let response = match self
             .http_client
@@ -299,10 +179,7 @@ impl RemoteClient {
             .send()
             .await
         {
-            Ok(r) => {
-                
-                r
-            }
+            Ok(r) => r,
             Err(e) => {
                 println!("❌ [LIST_DIR] Errore nell'invio della richiesta: {}", e);
                 return Err(ClientError::Http(e));
@@ -316,7 +193,6 @@ impl RemoteClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-
 
             return Err(match status_code {
                 404 => ClientError::NotFound {
@@ -332,21 +208,17 @@ impl RemoteClient {
 
         // Deserializza direttamente come Vec<MetaFile>
         let files: Vec<MetaFile> = match response.json::<Vec<MetaFile>>().await {
-            Ok(f) => {
-                f
-            }
+            Ok(f) => f,
             Err(e) => {
                 return Err(ClientError::Http(e));
             }
         };
-
 
         // Crea DirectoryListing - MANTIENI i nomi originali dall'API
         let directory_listing = DirectoryListing { files };
 
         Ok(directory_listing)
     }
-
 
     // Leggi contenuto file con support per offset e size
     pub async fn read_file(
@@ -360,8 +232,8 @@ impl RemoteClient {
             path, offset, size
         );
 
-        // 1. Costruisci URL base
-        let mut url = self.build_url("/files", Some(path));
+        let route_path = self.build_path("/files", Some(path));
+        let mut url = self.build_url(&route_path);
 
         // 2. Aggiungi query parameters per offset e size
         let mut query_params = Vec::new();
@@ -379,11 +251,13 @@ impl RemoteClient {
             url = format!("{}?{}", url, query_params.join("&"));
         }
 
+        // TODO: maybe add query params
+        let headers = self.get_headers("GET", &route_path, None);
 
         let response = self
             .http_client
             .get(&url)
-            .headers(self.auth_headers())
+            .headers(headers)
             .timeout(self.timeout)
             .send()
             .await
@@ -417,6 +291,8 @@ impl RemoteClient {
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         println!("🔍 [INIZIO] write_file con path={}", write_request.path);
 
+        let route_path = self.build_path("/files", Some(&write_request.path));
+        let url = self.build_url(&route_path);
         // === VALIDAZIONE PRE-RICHIESTA SECONDO SPEC ===
         // 1. Validazione refPath per soft/hard link
         match write_request.kind {
@@ -433,12 +309,18 @@ impl RemoteClient {
         }
 
         // 2. Validazione mode / contenuto / offset
-        let has_content = write_request.data.as_ref().map(|d| !d.is_empty()).unwrap_or(false);
+        let has_content = write_request
+            .data
+            .as_ref()
+            .map(|d| !d.is_empty())
+            .unwrap_or(false);
         match write_request.mode {
             Mode::Write => {
                 // content opzionale (metadata-only update permesso)
                 // size deve riflettere i bytes del content se presente
-                if has_content && (write_request.size as usize) != write_request.data.as_ref().unwrap().len() {
+                if has_content
+                    && (write_request.size as usize) != write_request.data.as_ref().unwrap().len()
+                {
                     println!("❌ [WRITE_FILE] Size dichiarato ≠ content length (write)");
                     return Err(ClientError::Server {
                         status: 400,
@@ -518,18 +400,33 @@ impl RemoteClient {
             _ => write_request.data.clone().unwrap_or_default(),
         };
 
-        // Codifica il path per route parameter
-        let url = self.build_url("/files", Some(&write_request.path));
-
         // METADATA JSON
-        println!("🔍 [DATA] Dimensione dati effettiva: {} bytes", send_data.len());
+        println!(
+            "🔍 [DATA] Dimensione dati effettiva: {} bytes",
+            send_data.len()
+        );
         let mut metadata_map = serde_json::Map::new();
         metadata_map.insert("size".to_string(), json!(effective_size));
-        metadata_map.insert("perm".to_string(), json!(format_permissions(&write_request.perm)));
-        metadata_map.insert("mtime".to_string(), json!(format_datetime(&write_request.mtime)));
-        metadata_map.insert("atime".to_string(), json!(format_datetime(&write_request.atime)));
-        metadata_map.insert("ctime".to_string(), json!(format_datetime(&write_request.ctime)));
-        metadata_map.insert("crtime".to_string(), json!(format_datetime(&write_request.crtime)));
+        metadata_map.insert(
+            "perm".to_string(),
+            json!(format_permissions(&write_request.perm)),
+        );
+        metadata_map.insert(
+            "mtime".to_string(),
+            json!(format_datetime(&write_request.mtime)),
+        );
+        metadata_map.insert(
+            "atime".to_string(),
+            json!(format_datetime(&write_request.atime)),
+        );
+        metadata_map.insert(
+            "ctime".to_string(),
+            json!(format_datetime(&write_request.ctime)),
+        );
+        metadata_map.insert(
+            "crtime".to_string(),
+            json!(format_datetime(&write_request.crtime)),
+        );
         metadata_map.insert("kind".to_string(), json!(write_request.kind.to_string()));
         metadata_map.insert("mode".to_string(), json!(write_request.mode.to_string()));
 
@@ -566,9 +463,16 @@ impl RemoteClient {
             println!("ℹ️ [WRITE_FILE] Nessun contenuto: update solo metadata (permessi/timestamp)");
         }
 
-        let mut headers = self.auth_headers();
-        headers.remove(reqwest::header::CONTENT_TYPE); // lasciar gestire a reqwest
+        println!("✅ [FORM] Form multipart creato");
 
+        // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
+        let mut headers = self.get_headers("PUT", &route_path, Some(&metadata_str));
+        headers.remove(reqwest::header::CONTENT_TYPE);
+        println!("🔍 [HEADERS] Headers finali: {:?}", headers);
+
+        println!("Metadati: {}", &metadata_str);
+
+        println!("🔍 [REQUEST] Invio richiesta HTTP PUT...");
         let response = self
             .http_client
             .put(&url)
@@ -586,14 +490,44 @@ impl RemoteClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "No response body".to_string());
-            println!("❌ [WRITE_FILE] Errore HTTP {}: {}", status_code, error_body);
-            println!("Metadata JSON inviato:\n  {}", metadata_str);
+
+            println!(
+                "❌ [WRITE_FILE] Errore HTTP {}: {}",
+                status_code, error_body
+            );
+
+            // Debug dettagli della richiesta per 400 Bad Request
+            if status_code == 400 || status_code == 404 {
+                println!("Metadata JSON inviato:");
+                println!("  {}", metadata_str);
+
+                if let Some(data) = &write_request.data {
+                    println!("  💾 Data length: {} bytes", data.len());
+                    if data.len() <= 100 {
+                        println!("  💾 Data content: {:?}", String::from_utf8_lossy(data));
+                    }
+                } else {
+                    println!("  💾 Data: None");
+                }
+            }
+
             return Err(match status_code {
-                400 => ClientError::Server { status: status_code, message: format!("Bad Request: {}", error_body) },
-                404 => ClientError::NotFound { path: write_request.path.clone() },
+                400 => ClientError::Server {
+                    status: status_code,
+                    message: format!("Bad Request: {}", error_body),
+                },
+                404 => ClientError::NotFound {
+                    path: write_request.path.clone(),
+                },
                 401 | 403 => ClientError::PermissionDenied(error_body),
-                409 => ClientError::Server { status: status_code, message: "Conflict".into() },
-                _ => ClientError::Server { status: status_code, message: error_body },
+                409 => ClientError::Server {
+                    status: status_code,
+                    message: "Conflict".into(),
+                },
+                _ => ClientError::Server {
+                    status: status_code,
+                    message: error_body,
+                },
             });
         } else {
             match status_code {
@@ -608,29 +542,58 @@ impl RemoteClient {
 
     // Crea directory
     pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
-        let url = self.build_url("/mkdir", Some(path));
+        let route_path = self.build_path("/mkdir", Some(path));
+        let url = self.build_url(&route_path);
 
-        let response = self
-            .http_client
-            .post(&url)
-            .headers(self.auth_headers())
-            .send()
-            .await?;
+        let headers = self.get_headers("POST", &route_path, None);
+
+        let response = self.http_client.post(&url).headers(headers).send().await?;
 
         self.handle_empty_response(response).await
     }
 
     // Elimina file o directory
     pub async fn delete(&self, path: &str) -> Result<(), ClientError> {
-        let url = self.build_url("/files", Some(path));
+        let route_path = self.build_path("/files", Some(path));
+        let url = self.build_url(&route_path);
+
+        let headers = self.get_headers("DELETE", &route_path, None);
 
         let response = self
             .http_client
             .delete(&url)
-            .headers(self.auth_headers())
+            .headers(headers)
             .send()
             .await?;
 
         self.handle_empty_response(response).await
+    }
+
+    // user registration
+    pub async fn user_registration(&self, username: String) -> Result<UserKeys, ClientError> {
+        let route_path = self.build_path("/users", None);
+        let url = self.build_url(&route_path);
+
+        let request_body = RegisterRequest { username };
+
+        let response = self
+            .http_client
+            .post(&url)
+            .json(&request_body)
+            .timeout(self.timeout)
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let keys: UserKeys = response.json().await.map_err(ClientError::Http)?;
+            Ok(keys)
+        } else {
+            let status_code = response.status().as_u16();
+            let message = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(self.map_http_error(status_code, message))
+        }
     }
 }

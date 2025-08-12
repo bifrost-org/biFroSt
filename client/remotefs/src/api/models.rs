@@ -1,7 +1,4 @@
-use std::string;
-
 use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthRequest {
     pub username: String,
@@ -56,7 +53,7 @@ pub struct MetaFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]  // ← Aggiunto per gestire snake_case
+#[serde(rename_all = "snake_case")] // ← Aggiunto per gestire snake_case
 pub enum FileKind {
     #[serde(rename = "regular_file")]
     RegularFile,
@@ -144,4 +141,10 @@ pub struct CreateFileRequest {
 pub struct CreateDirectoryRequest {
     pub path: String,
     pub permissions_octal: String,
+}
+
+// registration body
+#[derive(Serialize)]
+pub struct RegisterRequest {
+    pub username: String,
 }
