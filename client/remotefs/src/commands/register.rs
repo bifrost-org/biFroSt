@@ -12,7 +12,7 @@ pub async fn run() {
 
     let username = get_current_user();
 
-    let client = RemoteClient::new(&config);
+    let client = RemoteClient::new(&config, None);
 
     let user_keys: UserKeys = client
         .user_registration(username.clone())

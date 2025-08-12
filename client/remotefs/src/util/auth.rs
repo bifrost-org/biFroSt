@@ -106,9 +106,3 @@ impl UserKeys {
             .collect()
     }
 }
-
-impl Default for UserKeys {
-    fn default() -> Self {
-        UserKeys::load_from_files().unwrap()
-    }
-}

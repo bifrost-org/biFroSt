@@ -39,7 +39,7 @@ pub struct RemoteClient {
 }
 
 impl RemoteClient {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, user_keys: Option<UserKeys>) -> Self {
         let http_client = reqwest::Client::builder()
             .timeout(config.timeout)
             .build()
@@ -48,7 +48,10 @@ impl RemoteClient {
         Self {
             base_url: config.server_full_url(),
             http_client,
-            user_keys: UserKeys::default(),
+            user_keys: user_keys.unwrap_or(UserKeys {
+                api_key: String::new(),
+                secret_key: String::new(),
+            }),
             timeout: config.timeout,
             path_mounting: config.mount_point.to_string_lossy().to_string(),
         }

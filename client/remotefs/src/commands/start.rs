@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use fuser::{mount2, MountOption};
 use remotefs::{
     api::client::RemoteClient, config::settings::Config, fs::operations::RemoteFileSystem,
+    util::auth::UserKeys,
 };
 
 pub async fn run() {
@@ -15,8 +16,10 @@ pub async fn run() {
 
     prepare_mount_point(&config.mount_point);
 
+    let user_keys = UserKeys::load_from_files().expect("User keys not found");
+
     // FILESYSTEM AND MOUNT
-    let filesystem = RemoteFileSystem::new(RemoteClient::new(&config));
+    let filesystem = RemoteFileSystem::new(RemoteClient::new(&config, Some(user_keys)));
     println!("✅ Filesystem initialized");
 
     let options = [
