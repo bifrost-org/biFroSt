@@ -7,6 +7,7 @@ import {
   generateSecretKey,
 } from "../utils/crypto";
 import { getPath, USER_PATH } from "../utils/path";
+import UserCache from "../cache/userCache";
 
 type UserDbRow = {
   id: number;
@@ -39,8 +40,6 @@ class User {
     this.createdAt = createdAt;
     this.homePath = homePath;
   }
-
-  private static userCache: Map<string, User> = new Map();
 
   private static fromDatabaseRow(dbRow: UserDbRow): User {
     const {
@@ -82,9 +81,10 @@ class User {
     return await this.getUser(apiKey); // check new user and return it
   }
 
-  // cached query response
+  // this method has a cached query response
   static async getUser(apiKey: string): Promise<User | undefined> {
-    if (this.userCache.has(apiKey)) return this.userCache.get(apiKey);
+    const cachedUser = UserCache.get(apiKey);
+    if (cachedUser) return cachedUser;
 
     const result = await Database.query(
       `SELECT * FROM "user" WHERE api_key = $1`,
@@ -96,7 +96,7 @@ class User {
 
     const user = User.fromDatabaseRow(userRow);
 
-    this.userCache.set(apiKey, user);
+    UserCache.set(apiKey, user);
 
     return user;
   }

@@ -107,10 +107,20 @@ impl RemoteClient {
         }
     }
 
-    fn get_headers(&self, method: &str, route_path: &str, body: Option<&str>) -> HeaderMap {
-        let hmac_message = self.user_keys.build_hmac_message(method, route_path, body);
+    fn get_headers(&self, method: &str, route_path: &str, extra: Option<&str>) -> HeaderMap {
+        let timestamp = UserKeys::generate_timestamp();
+        let nonce = UserKeys::generate_nonce();
+        let hmac_message = self.user_keys.build_hmac_message(
+            method,
+            route_path,
+            &timestamp.to_string(),
+            &nonce,
+            extra,
+        );
         println!("HMAC message: {}", hmac_message);
-        let headers = self.user_keys.get_auth_headers(hmac_message);
+        let headers =
+            self.user_keys
+                .get_auth_headers(&hmac_message, &timestamp.to_string(), &nonce);
         println!("Headers: {:?}", headers);
         headers
     }
@@ -403,11 +413,12 @@ impl RemoteClient {
 
         println!("✅ [FORM] Form multipart creato");
 
-        // TODO: what to put in body?
         // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
-        let mut headers = self.get_headers("PUT", &route_path, None);
+        let mut headers = self.get_headers("PUT", &route_path, Some(&metadata_str));
         headers.remove(reqwest::header::CONTENT_TYPE);
         println!("🔍 [HEADERS] Headers finali: {:?}", headers);
+
+        println!("Metadati: {}", &metadata_str);
 
         println!("🔍 [REQUEST] Invio richiesta HTTP PUT...");
         let response = self
