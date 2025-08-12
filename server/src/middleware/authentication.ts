@@ -3,6 +3,7 @@ import User from "../model/user";
 import { createHmac, createHash } from "crypto";
 import { AuthError } from "../error/authError";
 import { UserError } from "../error/userError";
+import NonceCache from "../cache/nonceCache";
 
 export async function checkAuth(
   req: Request,
@@ -10,55 +11,53 @@ export async function checkAuth(
   next: NextFunction
 ) {
   try {
-    // console.log(req.headers);
-
     const apiKey = req.header("X-Api-Key");
     const signature = req.header("X-Signature");
     const timestamp = req.header("X-Timestamp");
+    const nonce = req.header("X-Nonce");
 
-    if (!apiKey || !signature || !timestamp) {
+    if (!apiKey || !signature || !timestamp || !nonce) {
       return next(AuthError.MissingHeaders());
     }
+
+    // Max 5 minutes of difference to avoid replay attacks
+    const now = Date.now();
+    const reqTime = parseInt(timestamp, 10);
+    if (isNaN(reqTime) || Math.abs(now - reqTime) > 5 * 60 * 1000) {
+      return next(AuthError.InvalidTimestamp());
+    }
+
+    if (NonceCache.has(nonce)) return next(AuthError.ReplayAttack());
+    NonceCache.set(nonce);
 
     const user = await User.getUser(apiKey);
     if (!user) {
       return next(UserError.Unauthorized());
     }
 
-    // console.log("\n" + user);
-
     const method = req.method.toUpperCase();
     const path = req.path;
 
-    let bodyHash = "";
-    if (req.body && Object.keys(req.body).length > 0) {
-      bodyHash = createHash("sha256")
-        .update(JSON.stringify(req.body))
+    // only PUT /files/{path} has something extra like multipart-form
+    // other routes that require authentication don't have query parameters and body
+    let extraHashed;
+    if (req.body.originalMetatada) {
+      extraHashed = createHash("sha256")
+        .update(JSON.stringify(req.body.originalMetatada))
         .digest("hex");
     }
 
-    const message = bodyHash
-      ? `${method}\n${path}\n${timestamp}\n${bodyHash}`
-      : `${method}\n${path}\n${timestamp}`;
-
-    // console.log("\n" + message);
+    const message = extraHashed
+      ? `${method}\n${path}\n${timestamp}\n${nonce}\n${extraHashed}`
+      : `${method}\n${path}\n${timestamp}\n${nonce}`;
 
     const hmac = createHmac("sha256", user.secretKey);
     hmac.update(message);
     const expectedSignature = hmac.digest("hex");
 
     if (signature !== expectedSignature) {
-      return res.status(403).json({ error: "Invalid signature" });
+      return next(AuthError.InvalidSignature());
     }
-
-    // console.log("Signature verificata");
-
-    // Potresti anche controllare il timestamp per evitare replay attack (es. max 5 min di differenza)
-    /* const now = Date.now();
-    const reqTime = parseInt(timestamp, 10);
-    if (isNaN(reqTime) || Math.abs(now - reqTime) > 5 * 60 * 1000) {
-      return res.status(400).json({ error: "Invalid or expired timestamp" });
-    } */
 
     next();
   } catch (e) {

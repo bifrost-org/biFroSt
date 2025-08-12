@@ -12,7 +12,9 @@ export class UserError extends Error {
     return new UserError(message, StatusCodes.BAD_REQUEST);
   }
 
-  static Unauthorized(message = "User does not exist or invalid API key") {
+  static Unauthorized(
+    message = "Authentication failed: user does not exist or invalid API key"
+  ) {
     return new UserError(message, StatusCodes.UNAUTHORIZED);
   }
 }

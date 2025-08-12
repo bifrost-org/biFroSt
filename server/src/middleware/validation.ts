@@ -58,6 +58,7 @@ export const validateMultipartMetadata = (
     }
 
     req.body = {
+      originalMetatada: metadataParsed,
       metadata: validation.data,
       content: files.content ? files.content[0] : undefined,
     };

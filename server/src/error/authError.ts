@@ -15,8 +15,18 @@ export class AuthError extends Error {
   }
 
   static InvalidSignature(
-    message = "Invalid signature. Authentication failed"
+    message = "Authentication failed: invalid signature"
   ) {
-    return new AuthError(message, StatusCodes.FORBIDDEN);
+    return new AuthError(message, StatusCodes.UNAUTHORIZED);
+  }
+
+  static InvalidTimestamp(
+    message = "Authentication failed: timestamp is invalid or expired"
+  ) {
+    return new AuthError(message, StatusCodes.UNAUTHORIZED);
+  }
+
+  static ReplayAttack(message = "Replay attack detected: nonce already used") {
+    return new AuthError(message, StatusCodes.UNAUTHORIZED);
   }
 }

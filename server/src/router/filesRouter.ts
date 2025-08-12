@@ -40,7 +40,7 @@ filesRouter.put(
   "/files/:path?",
   validatePathParameter(false),
   validateMultipartMetadata,
-  //checkAuth, FIXME:
+  checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     const currentPath = req.params.path;
     const { metadata, content } = req.body as {
