@@ -19,6 +19,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Config,
     Register,
     Start,
 }
@@ -28,6 +29,9 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Config => {
+            commands::config::run().await;
+        }
         Commands::Register => {
             commands::register::run().await;
         }

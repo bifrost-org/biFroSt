@@ -7,10 +7,15 @@ use remotefs::{
 };
 
 pub async fn run() {
+    let config = match Config::from_file() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
     println!("🚀 Start bifrost...");
-
-    let config = Config::from_file().expect("Loading configuration failed");
-
     println!("📡 Server: {}", config.server_full_url());
     println!("📁 Mount point: {:?}", config.mount_point);
 

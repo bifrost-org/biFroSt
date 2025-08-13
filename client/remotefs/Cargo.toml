@@ -52,6 +52,7 @@ hmac = "0.12.1"
 sha2 = "0.10.9"
 hex = "0.4.3"
 rand = "0.9.2"
+env = "1.0.1"
 
 [dev-dependencies]
 # Testing utilities

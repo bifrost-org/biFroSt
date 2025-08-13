@@ -4,6 +4,9 @@ use std::time::Duration;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    #[error("\nNo configuration file found.\nRun `bifrost config` to create one.")]
+    NotFound,
+
     #[error("Failed to read config file: {0}")]
     FileRead(#[from] std::io::Error),
 
@@ -42,12 +45,16 @@ impl Default for Config {
 }
 
 impl Config {
-    fn default_path() -> &'static Path {
+    pub fn default_path() -> &'static Path {
         Path::new("config.toml")
     }
 
     // load configuration from file
     pub fn from_file() -> Result<Self, ConfigError> {
+        if !Self::default_path().exists() {
+            return Err(ConfigError::NotFound);
+        }
+
         let content =
             std::fs::read_to_string(Self::default_path()).map_err(|e| ConfigError::FileRead(e))?;
 

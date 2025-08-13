@@ -6,7 +6,13 @@ use remotefs::util::auth::UserKeys;
 use remotefs::util::fs::get_current_user;
 
 pub async fn run() {
-    let config = Config::from_file().expect("Loading configuration failed");
+    let config = match Config::from_file() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
 
     println!("\nBegin registration:");
 
