@@ -9,7 +9,7 @@ import {
   validatePathParameter,
 } from "../middleware/validation";
 import { MetadataPut } from "../validation/metadataSchema";
-import { getPath, USER_PATH } from "../utils/path";
+import { getPath } from "../utils/path";
 import { checkAuth } from "../middleware/authentication";
 
 export const filesRouter: Router = Router();
@@ -21,7 +21,7 @@ filesRouter.get(
   checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const filePath = getPath(USER_PATH, req.params.path);
+      const filePath = getPath(req.userPath, req.params.path);
       const fileContent = await fs.readFile(filePath);
       res.status(StatusCodes.OK).send(fileContent);
     } catch (e) {
@@ -48,12 +48,12 @@ filesRouter.put(
       content?: { path: string };
     };
 
-    const finalPath = getPath(USER_PATH, currentPath);
+    const finalPath = getPath(req.userPath, currentPath);
 
     try {
       if (metadata.newPath && metadata.newPath !== currentPath) {
         const oldPath = finalPath;
-        const newPath = getPath(USER_PATH, metadata.newPath);
+        const newPath = getPath(req.userPath, metadata.newPath);
 
         await fs.rename(oldPath, newPath);
         await fs.chmod(newPath, parseInt(metadata.perm, 8));
@@ -70,7 +70,7 @@ filesRouter.put(
           metadata.kind === FileType.HardLink) &&
         metadata.refPath
       ) {
-        const linkTarget = getPath(USER_PATH, metadata.refPath);
+        const linkTarget = getPath(req.userPath, metadata.refPath);
         if (metadata.kind === FileType.SymLink) {
           // it is possible to create a dangling soft link
           await fs.symlink(linkTarget, finalPath);
@@ -164,7 +164,7 @@ filesRouter.delete(
   checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const filePath = getPath(USER_PATH, req.params.path);
+      const filePath = getPath(req.userPath, req.params.path);
       const stat = await fs.lstat(filePath);
 
       if (stat.isDirectory()) {
@@ -194,7 +194,7 @@ filesRouter.get(
   checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const entryPath = getPath(USER_PATH, req.params.path ?? "");
+      const entryPath = getPath(req.userPath, req.params.path ?? "");
 
       const stats = await fs.lstat(entryPath);
 
@@ -208,13 +208,15 @@ filesRouter.get(
 
         const kind = getNodeType(entry);
         let refPath;
+
+        // TODO: check this part
         if (kind === FileType.SymLink) {
           const refPathAbs = await fs.readlink(entryPath);
 
-          if (refPathAbs === USER_PATH) {
+          if (refPathAbs === req.userPath) {
             refPath = "/";
-          } else if (refPathAbs.startsWith(USER_PATH)) {
-            refPath = refPathAbs.slice(USER_PATH.length);
+          } else if (refPathAbs.startsWith(req.userPath)) {
+            refPath = refPathAbs.slice(req.userPath.length);
           } else {
             refPath = refPathAbs; // outside the namespace
           }
@@ -248,10 +250,10 @@ filesRouter.get(
           if (kind === FileType.SymLink) {
             const refPathAbs = await fs.readlink(entryPath);
 
-            if (refPathAbs === USER_PATH) {
+            if (refPathAbs === req.userPath) {
               refPath = "/";
-            } else if (refPathAbs.startsWith(USER_PATH)) {
-              refPath = refPathAbs.slice(USER_PATH.length);
+            } else if (refPathAbs.startsWith(req.userPath)) {
+              refPath = refPathAbs.slice(req.userPath.length);
             } else {
               refPath = refPathAbs; // outside the namespace
             }
@@ -293,7 +295,7 @@ filesRouter.post(
   checkAuth,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const dirPath = getPath(USER_PATH, req.params.path);
+      const dirPath = getPath(req.userPath, req.params.path);
 
       await fs.mkdir(dirPath);
       res.status(StatusCodes.CREATED).send();

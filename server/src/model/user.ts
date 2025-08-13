@@ -6,8 +6,6 @@ import {
   generateApiKey,
   generateSecretKey,
 } from "../utils/crypto";
-import { getPath, USER_PATH } from "../utils/path";
-import UserCache from "../cache/userCache";
 
 type UserDbRow = {
   id: number;
@@ -17,7 +15,6 @@ type UserDbRow = {
   iv: string;
   tag: string;
   created_at: Date;
-  home_path: string;
 };
 
 class User {
@@ -25,38 +22,27 @@ class User {
   apiKey: string;
   secretKey: string;
   createdAt: Date;
-  homePath: string;
 
   constructor(
     username: string,
     apiKey: string,
     secretKey: string,
-    createdAt: Date,
-    homePath: string
+    createdAt: Date
   ) {
     this.username = username;
     this.apiKey = apiKey;
     this.secretKey = secretKey;
     this.createdAt = createdAt;
-    this.homePath = homePath;
   }
 
   private static fromDatabaseRow(dbRow: UserDbRow): User {
-    const {
-      username,
-      api_key,
-      crypted_secret_key,
-      iv,
-      tag,
-      created_at,
-      home_path,
-    } = dbRow;
+    const { username, api_key, crypted_secret_key, iv, tag, created_at } =
+      dbRow;
     return new User(
       username,
       api_key,
       decryptSecretKey(crypted_secret_key, iv, tag),
-      created_at,
-      home_path
+      created_at
     );
   }
 
@@ -67,25 +53,20 @@ class User {
     const encryptedSecretKey: EncryptedSecretKey = encryptSecretKey(secretKey);
 
     await Database.query(
-      `INSERT INTO "user" (username, api_key, crypted_secret_key, iv, tag, home_path) VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO "user" (username, api_key, crypted_secret_key, iv, tag) VALUES ($1, $2, $3, $4, $5)`,
       [
         username,
         apiKey,
         encryptedSecretKey.ciphertext,
         encryptedSecretKey.iv,
         encryptedSecretKey.tag,
-        getPath(USER_PATH, username),
       ]
     );
 
     return await this.getUser(apiKey); // check new user and return it
   }
 
-  // this method has a cached query response
   static async getUser(apiKey: string): Promise<User | undefined> {
-    const cachedUser = UserCache.get(apiKey);
-    if (cachedUser) return cachedUser;
-
     const result = await Database.query(
       `SELECT * FROM "user" WHERE api_key = $1`,
       [apiKey]
@@ -95,8 +76,6 @@ class User {
     if (!userRow) return undefined;
 
     const user = User.fromDatabaseRow(userRow);
-
-    UserCache.set(apiKey, user);
 
     return user;
   }

@@ -4,6 +4,8 @@ import { createHmac, createHash } from "crypto";
 import { AuthError } from "../error/authError";
 import { UserError } from "../error/userError";
 import NonceCache from "../cache/nonceCache";
+import UserCache from "../cache/userCache";
+import { getUserPath } from "../utils/path";
 
 export async function checkAuth(
   req: Request,
@@ -30,9 +32,11 @@ export async function checkAuth(
     if (NonceCache.has(nonce)) return next(AuthError.ReplayAttack());
     NonceCache.set(nonce);
 
-    const user = await User.getUser(apiKey);
+    let user = UserCache.get(apiKey);
     if (!user) {
-      return next(UserError.Unauthorized());
+      user = await User.getUser(apiKey);
+      if (!user) return next(UserError.Unauthorized());
+      UserCache.set(apiKey, user);
     }
 
     const method = req.method.toUpperCase();
@@ -58,6 +62,8 @@ export async function checkAuth(
     if (signature !== expectedSignature) {
       return next(AuthError.InvalidSignature());
     }
+
+    req.userPath = getUserPath(user.username, user.apiKey);
 
     next();
   } catch (e) {
