@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import fs from "fs/promises";
 import User from "../model/user";
 import { createHmac, createHash } from "crypto";
 import { AuthError } from "../error/authError";
@@ -42,15 +43,33 @@ export async function checkAuth(
     const method = req.method.toUpperCase();
     const path = req.path;
 
-    // only PUT /files/{path} has something extra like multipart-form
-    // other routes that require authentication don't have query parameters and body
-    let extraHashed;
-    if (req.body.originalMetatada) {
-      extraHashed = createHash("sha256")
-        .update(JSON.stringify(req.body.originalMetatada))
-        .digest("hex");
+    // extra can be filled with query parameters (GET /files/{path}), metadata and content (PUT /files/{path})
+    const extrasHashed = [];
+    // Case GET /files/{path}
+    if (req.query["offset"] && req.query["size"]) {
+      const queryString = `offset=${req.query["offset"]}&size=${req.query["size"]}`;
+      extrasHashed.push(createHash("sha256").update(queryString).digest("hex"));
     }
 
+    // Case PUT /files/{path}
+    // Use req.body.originalMetadata instead of req.body.metadata to avoid parsing and preserve exact client-server consistency
+    if (req.body.originalMetadata)
+      extrasHashed.push(
+        createHash("sha256")
+          .update(JSON.stringify(req.body.originalMetadata))
+          .digest("hex")
+      );
+
+    if (req.body.content?.path) {
+      console.log("Content: " + (await fs.readFile(req.body.content.path)));
+      extrasHashed.push(
+        createHash("sha256")
+          .update(await fs.readFile(req.body.content.path))
+          .digest("hex")
+      );
+    }
+
+    const extraHashed = extrasHashed.join("\n");
     const message = extraHashed
       ? `${method}\n${path}\n${timestamp}\n${nonce}\n${extraHashed}`
       : `${method}\n${path}\n${timestamp}\n${nonce}`;

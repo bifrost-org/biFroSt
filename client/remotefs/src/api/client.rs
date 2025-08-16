@@ -3,7 +3,7 @@ use serde_json::json;
 
 use crate::api::models::*;
 use crate::config::settings::Config;
-use crate::util::auth::UserKeys;
+use crate::util::auth::{ExtraItem, UserKeys};
 use crate::util::date::format_datetime;
 use crate::util::fs::format_permissions;
 use crate::util::path::{get_file_name, get_parent_path};
@@ -112,7 +112,12 @@ impl RemoteClient {
         }
     }
 
-    fn get_headers(&self, method: &str, route_path: &str, extra: Option<&str>) -> HeaderMap {
+    fn get_headers(
+        &self,
+        method: &str,
+        route_path: &str,
+        extra: Option<Vec<ExtraItem>>,
+    ) -> HeaderMap {
         let timestamp = UserKeys::generate_timestamp();
         let nonce = UserKeys::generate_nonce();
         let hmac_message = self.user_keys.build_hmac_message(
@@ -122,6 +127,7 @@ impl RemoteClient {
             &nonce,
             extra,
         );
+
         let headers =
             self.user_keys
                 .get_auth_headers(&hmac_message, &timestamp.to_string(), &nonce);
@@ -254,8 +260,12 @@ impl RemoteClient {
             url = format!("{}?{}", url, query_params.join("&"));
         }
 
-        // TODO: maybe add query params
-        let headers = self.get_headers("GET", &route_path, None);
+        println!("Query param string: {}", query_params.join("&"));
+        let headers = self.get_headers(
+            "GET",
+            &route_path,
+            Some(vec![ExtraItem::Text(&query_params.join("&"))]),
+        );
 
         let response = self
             .http_client
@@ -275,6 +285,10 @@ impl RemoteClient {
         // 2. Gestisci risposta binaria, non JSON
         if response.status().is_success() {
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
+            println!(
+                "Il fil che mi hai dato dal server è grande: {} byte",
+                data.len()
+            );
             Ok(FileContent { data })
         } else {
             let message = response
@@ -289,6 +303,7 @@ impl RemoteClient {
             Err(self.map_http_error(status.as_u16(), message))
         }
     }
+
     // Scrivi file (usando multipart/form-data come richiesto dall'API)
     // ...existing code...
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
@@ -451,8 +466,23 @@ impl RemoteClient {
         let metadata_str =
             serde_json::to_string(&metadata_json).map_err(ClientError::Serialization)?;
 
-        println!("🔍 [FORM] Preparazione form multipart...");
         let include_content = !send_data.is_empty();
+
+        let extra_items = if include_content {
+            Some(vec![
+                ExtraItem::Text(&metadata_str),
+                ExtraItem::Bytes(&send_data),
+            ])
+        } else {
+            Some(vec![ExtraItem::Text(&metadata_str)])
+        };
+
+        let mut headers = self.get_headers("PUT", &route_path, extra_items);
+        // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
+        headers.remove(reqwest::header::CONTENT_TYPE);
+        println!("🔍 [HEADERS] Headers finali: {:?}", headers);
+
+        println!("🔍 [FORM] Preparazione form multipart...");
         let mut form = reqwest::multipart::Form::new().text("metadata", metadata_str.clone());
         if include_content {
             form = form.part(
@@ -467,13 +497,6 @@ impl RemoteClient {
         }
 
         println!("✅ [FORM] Form multipart creato");
-
-        // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
-        let mut headers = self.get_headers("PUT", &route_path, Some(&metadata_str));
-        headers.remove(reqwest::header::CONTENT_TYPE);
-        println!("🔍 [HEADERS] Headers finali: {:?}", headers);
-
-        println!("Metadati: {}", &metadata_str);
 
         println!("🔍 [REQUEST] Invio richiesta HTTP PUT...");
         let response = self

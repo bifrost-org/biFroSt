@@ -53,12 +53,18 @@ impl UserKeys {
         path: &str,
         timestamp: &str,
         nonce: &str,
-        extra: Option<&str>,
+        extra: Option<Vec<ExtraItem>>,
     ) -> String {
-        let extra_hashed = if let Some(content) = extra {
-            let mut hasher = Sha256::new();
-            hasher.update(content.as_bytes());
-            format!("{:x}", hasher.finalize())
+        let extra_hashed = if let Some(extras) = extra {
+            let mut hashes = Vec::new();
+            for item in extras {
+                let hash = match item {
+                    ExtraItem::Text(s) => Sha256::digest(s.as_bytes()),
+                    ExtraItem::Bytes(b) => Sha256::digest(b),
+                };
+                hashes.push(format!("{:x}", hash));
+            }
+            hashes.join("\n")
         } else {
             "".to_string()
         };
@@ -81,6 +87,8 @@ impl UserKeys {
                 extra_hashed
             )
         };
+
+        println!("Message: {}", message);
 
         self.sign_request(message)
     }
@@ -105,4 +113,9 @@ impl UserKeys {
             .map(char::from)
             .collect()
     }
+}
+
+pub enum ExtraItem<'a> {
+    Text(&'a str),
+    Bytes(&'a [u8]),
 }
