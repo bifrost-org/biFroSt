@@ -116,22 +116,29 @@ impl RemoteClient {
         &self,
         method: &str,
         route_path: &str,
-        extra: Option<Vec<ExtraItem>>,
+        extra_header: Option<&str>,
+        extra_to_be_hashed: Option<Vec<ExtraItem>>,
     ) -> HeaderMap {
-        let timestamp = UserKeys::generate_timestamp();
+        let timestamp = UserKeys::generate_timestamp().to_string();
         let nonce = UserKeys::generate_nonce();
+
         let hmac_message = self.user_keys.build_hmac_message(
             method,
             route_path,
-            &timestamp.to_string(),
-            &nonce,
-            extra,
+            {
+                let mut v: Vec<&str> = vec![&timestamp, &nonce];
+                if let Some(extra) = extra_header {
+                    v.push(extra);
+                }
+                v
+            },
+            extra_to_be_hashed,
         );
 
-        let headers =
+        let final_headers: HeaderMap =
             self.user_keys
                 .get_auth_headers(&hmac_message, &timestamp.to_string(), &nonce);
-        headers
+        final_headers
     }
 
     // Ottieni metadati di un singolo file/directory
@@ -178,7 +185,7 @@ impl RemoteClient {
 
         println!("📁 [LIST_DIR] URL costruito: {}", url);
 
-        let headers = self.get_headers("GET", &route_path, None);
+        let headers = self.get_headers("GET", &route_path, None, None);
 
         let response = match self
             .http_client
@@ -242,30 +249,24 @@ impl RemoteClient {
         );
 
         let route_path = self.build_path("/files", Some(path));
-        let mut url = self.build_url(&route_path);
+        let url = self.build_url(&route_path);
 
-        // 2. Aggiungi query parameters per offset e size
-        let mut query_params = Vec::new();
-
-        if let Some(offset) = offset {
-            query_params.push(format!("offset={}", offset));
+        let mut headers;
+        // Note: offset and size should be always present
+        if let Some(off) = offset {
+            let range_value = if let Some(sz) = size {
+                format!("bytes={}-{}", off, off + sz - 1)
+            } else {
+                // from the offset to the end of the file
+                format!("bytes={}-", off)
+            };
+            headers = self.get_headers("GET", &route_path, Some(&range_value), None);
+            headers.insert("Range", range_value.parse().expect("Invalid Range header"));
+            println!("🔍 [HEADERS] Range: {}", range_value);
+        } else {
+            headers = self.get_headers("GET", &route_path, None, None);
         }
-
-        if let Some(size) = size {
-            query_params.push(format!("size={}", size));
-        }
-
-        // Aggiungi query parameters all'URL se presenti
-        if !query_params.is_empty() {
-            url = format!("{}?{}", url, query_params.join("&"));
-        }
-
-        println!("Query param string: {}", query_params.join("&"));
-        let headers = self.get_headers(
-            "GET",
-            &route_path,
-            Some(vec![ExtraItem::Text(&query_params.join("&"))]),
-        );
+        // without offset, the server should return the entire file
 
         let response = self
             .http_client
@@ -477,7 +478,7 @@ impl RemoteClient {
             Some(vec![ExtraItem::Text(&metadata_str)])
         };
 
-        let mut headers = self.get_headers("PUT", &route_path, extra_items);
+        let mut headers = self.get_headers("PUT", &route_path, None, extra_items);
         // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
         headers.remove(reqwest::header::CONTENT_TYPE);
         println!("🔍 [HEADERS] Headers finali: {:?}", headers);
@@ -571,7 +572,7 @@ impl RemoteClient {
         let route_path = self.build_path("/mkdir", Some(path));
         let url = self.build_url(&route_path);
 
-        let headers = self.get_headers("POST", &route_path, None);
+        let headers = self.get_headers("POST", &route_path, None, None);
 
         let response = self.http_client.post(&url).headers(headers).send().await?;
 
@@ -583,7 +584,7 @@ impl RemoteClient {
         let route_path = self.build_path("/files", Some(path));
         let url = self.build_url(&route_path);
 
-        let headers = self.get_headers("DELETE", &route_path, None);
+        let headers = self.get_headers("DELETE", &route_path, None, None);
 
         let response = self
             .http_client

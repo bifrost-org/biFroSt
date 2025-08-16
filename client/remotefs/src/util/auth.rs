@@ -47,12 +47,12 @@ impl UserKeys {
         headers
     }
 
+    // remember timestamp and nonce
     pub fn build_hmac_message(
         &self,
         method: &str,
         path: &str,
-        timestamp: &str,
-        nonce: &str,
+        headers: Vec<&str>,
         extra: Option<Vec<ExtraItem>>,
     ) -> String {
         let extra_hashed = if let Some(extras) = extra {
@@ -71,19 +71,17 @@ impl UserKeys {
 
         let message = if extra_hashed.is_empty() {
             format!(
-                "{}\n{}\n{}\n{}",
+                "{}\n{}\n{}",
                 method.to_uppercase(),
                 path,
-                timestamp,
-                nonce
+                headers.join("\n")
             )
         } else {
             format!(
-                "{}\n{}\n{}\n{}\n{}",
+                "{}\n{}\n{}\n{}",
                 method.to_uppercase(),
                 path,
-                timestamp,
-                nonce,
+                headers.join("\n"),
                 extra_hashed
             )
         };

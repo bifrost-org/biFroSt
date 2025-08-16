@@ -18,6 +18,8 @@ export async function checkAuth(
     const signature = req.header("X-Signature");
     const timestamp = req.header("X-Timestamp");
     const nonce = req.header("X-Nonce");
+    // Range header for GET /files/{path}
+    const range = req.header("Range");
 
     if (!apiKey || !signature || !timestamp || !nonce) {
       return next(AuthError.MissingHeaders());
@@ -43,15 +45,13 @@ export async function checkAuth(
     const method = req.method.toUpperCase();
     const path = req.path;
 
-    // extra can be filled with query parameters (GET /files/{path}), metadata and content (PUT /files/{path})
-    const extrasHashed = [];
-    // Case GET /files/{path}
-    if (req.query["offset"] && req.query["size"]) {
-      const queryString = `offset=${req.query["offset"]}&size=${req.query["size"]}`;
-      extrasHashed.push(createHash("sha256").update(queryString).digest("hex"));
-    }
+    const messageParts = [method, path, timestamp, nonce];
 
-    // Case PUT /files/{path}
+    if (range) messageParts.push(range);
+
+    const extrasHashed = [];
+
+    // extra can be filled with metadata and content (PUT /files/{path})
     // Use req.body.originalMetadata instead of req.body.metadata to avoid parsing and preserve exact client-server consistency
     if (req.body.originalMetadata)
       extrasHashed.push(
@@ -69,10 +69,13 @@ export async function checkAuth(
       );
     }
 
-    const extraHashed = extrasHashed.join("\n");
-    const message = extraHashed
-      ? `${method}\n${path}\n${timestamp}\n${nonce}\n${extraHashed}`
-      : `${method}\n${path}\n${timestamp}\n${nonce}`;
+    if (extrasHashed.length > 0) {
+      messageParts.push(extrasHashed.join("\n"));
+    }
+
+    const message = messageParts.join("\n");
+
+    console.log("Message: " + message);
 
     const hmac = createHmac("sha256", user.secretKey);
     hmac.update(message);
