@@ -86,8 +86,6 @@ impl UserKeys {
             )
         };
 
-        println!("Message: {}", message);
-
         self.sign_request(message)
     }
 

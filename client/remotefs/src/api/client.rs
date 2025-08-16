@@ -243,11 +243,6 @@ impl RemoteClient {
         offset: Option<u64>,
         size: Option<u64>,
     ) -> Result<FileContent, ClientError> {
-        println!(
-            "📖 [READ_FILE] path: '{}', offset: {:?}, size: {:?}",
-            path, offset, size
-        );
-
         let route_path = self.build_path("/files", Some(path));
         let url = self.build_url(&route_path);
 
@@ -287,7 +282,7 @@ impl RemoteClient {
         if response.status().is_success() {
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
             println!(
-                "Il fil che mi hai dato dal server è grande: {} byte",
+                "Il file che mi hai dato dal server è grande: {} byte",
                 data.len()
             );
             Ok(FileContent { data })

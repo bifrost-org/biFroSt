@@ -46,6 +46,12 @@ export class FileError extends Error {
     return new FileError(message, StatusCodes.CONFLICT);
   }
 
+  static RequestedRangeNotSatisfiable(
+    message = "The requested byte range is not satisfiable"
+  ) {
+    return new FileError(message, StatusCodes.REQUESTED_RANGE_NOT_SATISFIABLE);
+  }
+
   static SizeMismatch(
     message = "Size mismatch: integrity verification failed"
   ) {

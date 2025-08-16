@@ -11,6 +11,7 @@ import {
 import { MetadataPut } from "../validation/metadataSchema";
 import { getPath } from "../utils/path";
 import { checkAuth } from "../middleware/authentication";
+import { createReadStream } from "fs";
 
 export const filesRouter: Router = Router();
 
@@ -22,8 +23,38 @@ filesRouter.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const filePath = getPath(req.userPath, req.params.path);
-      const fileContent = await fs.readFile(filePath);
-      res.status(StatusCodes.OK).send(fileContent);
+      const stat = await fs.stat(filePath);
+
+      const range = req.header("Range");
+
+      if (range) {
+        const matches = /bytes=(\d*)-(\d*)/.exec(range);
+        if (!matches) return next(FileError.RequestedRangeNotSatisfiable());
+
+        let start = parseInt(matches[1], 10);
+        let end = matches[2] ? parseInt(matches[2], 10) : stat.size - 1;
+
+        if (isNaN(start)) start = 0;
+        if (isNaN(end)) end = stat.size - 1;
+
+        if (start >= stat.size || end >= stat.size)
+          return next(FileError.RequestedRangeNotSatisfiable());
+
+        const chunkSize = end - start + 1;
+        res.writeHead(StatusCodes.PARTIAL_CONTENT, {
+          "Content-Length": chunkSize,
+          "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+          "Accept-Ranges": "bytes",
+        });
+
+        const stream = createReadStream(filePath, { start, end });
+        stream.pipe(res);
+      } else {
+        res.status(StatusCodes.OK);
+        res.setHeader("Content-Length", stat.size);
+        const stream = createReadStream(filePath);
+        stream.pipe(res);
+      }
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {

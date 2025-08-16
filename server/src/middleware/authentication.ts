@@ -60,22 +60,18 @@ export async function checkAuth(
           .digest("hex")
       );
 
-    if (req.body.content?.path) {
-      console.log("Content: " + (await fs.readFile(req.body.content.path)));
+    if (req.body.content?.path)
       extrasHashed.push(
         createHash("sha256")
           .update(await fs.readFile(req.body.content.path))
           .digest("hex")
       );
-    }
 
     if (extrasHashed.length > 0) {
       messageParts.push(extrasHashed.join("\n"));
     }
 
     const message = messageParts.join("\n");
-
-    console.log("Message: " + message);
 
     const hmac = createHmac("sha256", user.secretKey);
     hmac.update(message);
