@@ -47,7 +47,7 @@ export class FileError extends Error {
   }
 
   static RequestedRangeNotSatisfiable(
-    message = "The requested byte range is not satisfiable"
+    message = "The specified range is invalid or outside the file size"
   ) {
     return new FileError(message, StatusCodes.REQUESTED_RANGE_NOT_SATISFIABLE);
   }

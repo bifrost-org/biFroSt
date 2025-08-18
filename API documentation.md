@@ -2,8 +2,66 @@
 
 # Index
 
-1. [Collection `files`](#collection-documents)
-2. [Collection `users`](#collection-users)
+1. [Authentication](#authentication)
+2. [Collection `files`](#collection-documents)
+3. [Collection `users`](#collection-users)
+
+<br/>
+
+# Authentication
+
+All API requests (except [POST `/users`](#post-users) for registration) must be authenticated using **HMAC-based request signing**.
+
+## Required headers
+
+| **Header**    | **Description**                                                                                                                          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `X-Api-Key`   | Public identifier of the user.                                                                                                           |
+| `X-Signature` | HMAC-SHA256 signature of the request (see below).                                                                                        |
+| `X-Timestamp` | Unix timestamp (milliseconds). Maximum allowed difference with server time: **±5 minutes**. Prevents replay attacks with stale requests. |
+| `X-Nonce`     | Unique random string per request. Each nonce can only be used once. Prevents replay attacks.                                             |
+| `Range`       | _(Optional, only for GET `/files/{path}`)_. Included in signature calculation if present.                                                |
+
+## Signature calculation
+
+The server validates the request by recomputing the HMAC-SHA256 signature with the user’s `secret_key`.
+
+The signed message is constructed by concatenating the following parts, separated by line breaks (`\n`):
+
+1. HTTP method (`GET`, `PUT`, `POST`, `DELETE`, …)
+2. Request path (as received by the server, already percent-encoded)
+3. `X-Timestamp` header
+4. `X-Nonce` header
+5. _(optional)_ `Range` header, if provided
+6. _(optional)_ SHA-256 hash of the request body extras:
+
+   - JSON metadata (exact string as sent, before parsing);
+   - Binary file content.
+
+If both metadata and content are provided, their SHA-256 digests are joined with a line break, and the result is appended as the final message part.
+
+Finally, the message is signed:
+
+```
+signature = HMAC_SHA256(secret_key, message)
+```
+
+The client must send this as a lowercase hexadecimal string in the `X-Signature` header.
+
+## Error handling
+
+If authentication fails, the API returns the following status codes with their corresponding conditions:
+
+- `400 Bad Request`
+
+  - Missing or malformed authentication headers (`X-Api-Key`, `X-Signature`, `X-Timestamp`, `X-Nonce`).
+
+- `401 Unauthorized`
+
+  - Invalid API key.
+  - Signature mismatch (`X-Signature` does not match the expected HMAC).
+  - Timestamp is invalid, expired, or outside ±5 minutes of server time.
+  - Replay attack detected (nonce already used).
 
 <br/>
 
@@ -19,29 +77,51 @@ A collection representing the remote files accessible through the mounted virtua
 - [GET `/list/{path}`](#get-listpath) - Retrieve the list of files inside a folder
 - [POST `/mkdir/{path}`](#post-mkdirpath) - Create a new folder
 
+Perfetto, con il codice che mi hai dato ora la documentazione può essere aggiornata per riflettere il supporto alla **Range request** e al **206 Partial Content**.
+Ecco come riscrivere la sezione:
+
+---
+
 ## GET `/files/{path}`
 
 Retrieve the contents of a file located at the specified path.
 
+**Authentication required:** All requests must be authenticated as described in [Authentication](#authentication).
+
 ### Path parameters
 
-- `path`: The full path of the file to retrieve. This must be **percent-encoded**. For example, `/folder/file.txt` → `/folder%2Ffile.txt`.
+- `path`: The full path of the file to retrieve. This must be **percent-encoded**.
+  Example: `/folder/file.txt` → `/folder%2Ffile.txt`.
 
-### Response body
+### Request headers
 
-Returns the file contents as raw binary.
+| **Header**           | **Description**                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `Range` _(optional)_ | Allows partial download of the file. Must follow the format `bytes=start-end`. If omitted, the entire file is returned. |
+
+### Response
+
+- If `Range` is **not** provided:
+  Returns the full file content as raw binary with status `200 OK`.
+
+- If `Range` **is provided**:
+  Returns only the requested byte range as raw binary with status `206 Partial Content`.
+  Response headers will include:
+
+  - `Content-Length`: Size of the returned chunk (in bytes).
+  - `Content-Range`: Range of bytes returned and total file size (e.g. `bytes 0-131071/1048576`).
+  - `Accept-Ranges: bytes`
 
 ### Success status
 
-- `200 Ok`: File content returned successfully.
+- `200 OK`: Full file returned successfully.
+- `206 Partial Content`: Partial range of file returned successfully.
 
 ### Errors
 
-This API can return the following error codes:
-
 - `400 Bad Request`: The provided path is invalid or malformed.
-- `401 Unauthorized`: The user is not authenticated. TODO:
 - `404 Not Found`: The file does not exist.
+- `416 Requested Range Not Satisfiable`: The specified range is invalid or outside the file size.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## PUT `/files/{path}`
@@ -50,6 +130,8 @@ Create or replace the file at the specified path with the given content and meta
 
 - To create an empty file, you may omit the content or send it as empty.
 - To update metadata only, send the metadata fields without content.
+
+> All requests from this endpoint must be authenticated as described in [Authentication](#authentication).
 
 ### Path parameters
 
@@ -157,7 +239,6 @@ Additionally:
   - `kind` is `"soft_link"` or `"hard_link"` but `refPath` is missing;
   - Required fields are missing depending on the selected `mode`;
   - `kind` is `"hard_link"` but `refPath` points to a resource that is not a directory, although it is specified as one.
-- `401 Unauthorized`: User not authenticated. TODO:
 - `403 Forbidden`: Attempt to create a hard link to a directory, which is not permitted by the file system.
 - `404 Not Found`:
   - `kind` is `"hard_link"` but the target file at `refPath` does not exist;
@@ -170,6 +251,8 @@ Additionally:
 
 Delete a file or directory at the specified path.
 
+> All requests from this endpoint must be authenticated as described in [Authentication](#authentication).
+
 ### Path parameters
 
 - `path`: The full path of the file or directory to delete (percent-encoded).
@@ -181,7 +264,6 @@ Delete a file or directory at the specified path.
 ### Errors
 
 - `400 Bad Request`: The provided path is invalid or malformed.
-- `401 Unauthorized`: The user is not authenticated. TODO:
 - `404 Not Found`: The specified file or directory does not exist.
 - `409 Conflict`: The directory at the provided path is not empty.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
@@ -189,6 +271,8 @@ Delete a file or directory at the specified path.
 ## GET `/list/{path}`
 
 List the contents of a directory at the specified path.
+
+> All requests from this endpoint must be authenticated as described in [Authentication](#authentication).
 
 ### Path parameters
 
@@ -241,13 +325,14 @@ Example output (fields may vary depending on the entry):
 ### Errors
 
 - `400 Bad Request`: The provided path is invalid or malformed.
-- `401 Unauthorized`: User not authenticated. TODO:
 - `404 Not Found`: The specified entry does not exist.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## POST `/mkdir/{path}`
 
 Create a new directory at the specified path.
+
+> All requests from this endpoint must be authenticated as described in [Authentication](#authentication).
 
 ### Path parameters
 
@@ -264,7 +349,6 @@ This endpoint does not require a request body.
 ### Errors
 
 - `400 Bad Request`: The provided path is invalid or malformed.
-- `401 Unauthorized`: User not authenticated. TODO:
 - `404 Not Found`: Parent directory does not exist.
 - `409 Conflict`: The directory at the provided path already exists.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
