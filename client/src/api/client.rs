@@ -9,6 +9,8 @@ use crate::util::fs::format_permissions;
 use crate::util::path::{get_file_name, get_parent_path};
 use std::time::Duration;
 
+use moka::sync::Cache as MokaCache;
+
 #[allow(unused_macros)]
 macro_rules! debug_println {
     ($($arg:tt)*) => {
@@ -44,6 +46,7 @@ pub struct RemoteClient {
     user_keys: UserKeys,
     timeout: Duration,
     pub path_mounting: String,
+    cache: MokaCache<String, DirectoryListing>,
 }
 
 impl RemoteClient {
@@ -62,6 +65,10 @@ impl RemoteClient {
             }),
             timeout: config.timeout,
             path_mounting: config.mount_point.to_string_lossy().to_string(),
+            cache: MokaCache::builder()
+                .time_to_live(Duration::from_secs(3*60))
+                .time_to_idle(Duration::from_secs(3*60))
+                .build(),
         }
     }
 
@@ -190,10 +197,21 @@ impl RemoteClient {
     pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
         let route_path = self.build_path("/list", Some(path));
         let url = self.build_url(&route_path);
-
+        
         debug_println!("📁 [LIST_DIR] URL costruito: {}", url);
-
+        
         let headers = self.get_headers("GET", &route_path, None, None);
+        
+        match self.cache.get(&url) {
+            Some(cached_response) => {
+                debug_println!("📁 [LIST_DIR] Risposta dalla cache: {}", url);
+                return Ok(cached_response.clone());
+            }
+            None => {
+                debug_println!("📁 [LIST_DIR] Nessuna risposta in cache per: {}", url);
+                println!("RICHIESTA METADATI");
+            }
+        }
 
         let response = match self
             .http_client
@@ -240,6 +258,8 @@ impl RemoteClient {
 
         // Crea DirectoryListing - MANTIENI i nomi originali dall'API
         let directory_listing = DirectoryListing { files };
+
+        self.cache.insert(url.clone(), directory_listing.clone());
 
         Ok(directory_listing)
     }
@@ -312,7 +332,7 @@ impl RemoteClient {
     // ...existing code...
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         debug_println!("🔍 [INIZIO] write_file con path={}", write_request.path);
-        println!("CHIAMATAAAAAAAAA con {}", write_request.size);
+        debug_println!("CHIAMATAAAAAAAAA con {}", write_request.size);
         let route_path = self.build_path("/files", Some(&write_request.path));
         let url = self.build_url(&route_path);
         // === VALIDAZIONE PRE-RICHIESTA SECONDO SPEC ===
