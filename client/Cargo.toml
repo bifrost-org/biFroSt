@@ -2,7 +2,7 @@
 name = "remotefs"
 version = "0.1.0"
 edition = "2021"
-authors = ["Francesco Borrelli <>, Emanuele Frisi <emanuelefrisi@outlook.com>"]
+authors = ["Francesco Borrelli <fra.b0344@gmail.com>, Emanuele Frisi <emanuelefrisi@outlook.com>"]
 description = "A remote file system client that mounts remote storage as a local directory"
 readme = "README.md"
 repository = "https://github.com/bifrost-org/biFroSt"
@@ -53,6 +53,9 @@ sha2 = "0.10.9"
 hex = "0.4.3"
 rand = "0.9.2"
 env = "1.0.1"
+
+# Cache
+moka = { version = "0.12", features = ["sync"] }
 
 [dev-dependencies]
 # Testing utilities
