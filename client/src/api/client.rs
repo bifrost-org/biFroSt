@@ -202,13 +202,13 @@ impl RemoteClient {
         
         let headers = self.get_headers("GET", &route_path, None, None);
         
-        match self.cache.get(&url) {
+        match self.cache.get(path) {
             Some(cached_response) => {
-                debug_println!("📁 [LIST_DIR] Risposta dalla cache: {}", url);
+                debug_println!("📁 [LIST_DIR] Risposta dalla cache: {}", path);
                 return Ok(cached_response.clone());
             }
             None => {
-                debug_println!("📁 [LIST_DIR] Nessuna risposta in cache per: {}", url);
+                debug_println!("📁 [LIST_DIR] Nessuna risposta in cache per: {}", path);
                 println!("RICHIESTA METADATI");
             }
         }
@@ -259,7 +259,7 @@ impl RemoteClient {
         // Crea DirectoryListing - MANTIENI i nomi originali dall'API
         let directory_listing = DirectoryListing { files };
 
-        self.cache.insert(url.clone(), directory_listing.clone());
+        self.cache.insert(path.to_string(), directory_listing.clone());
 
         Ok(directory_listing)
     }
@@ -333,6 +333,11 @@ impl RemoteClient {
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         debug_println!("🔍 [INIZIO] write_file con path={}", write_request.path);
         debug_println!("CHIAMATAAAAAAAAA con {}", write_request.size);
+
+        self.cache.invalidate(&get_parent_path(&write_request.path));
+
+        debug_println!("Invalidazione, {}", get_parent_path(&write_request.path));
+
         let route_path = self.build_path("/files", Some(&write_request.path));
         let url = self.build_url(&route_path);
         // === VALIDAZIONE PRE-RICHIESTA SECONDO SPEC ===
@@ -594,6 +599,11 @@ impl RemoteClient {
     pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
         let route_path = self.build_path("/mkdir", Some(path));
         let url = self.build_url(&route_path);
+        
+
+        self.cache.invalidate(&get_parent_path(&path)); //invalidate the father entries
+        debug_println!("invalido {}", get_parent_path(&path));
+
 
         let headers = self.get_headers("POST", &route_path, None, None);
 
