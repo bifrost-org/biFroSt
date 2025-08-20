@@ -490,7 +490,7 @@ impl RemoteClient {
         }
 
         let metadata_json = serde_json::Value::Object(metadata_map);
-        debug_println!("🔍 [METADATA] Metadati preparati: {}", metadata_json);
+        println!("🔍 [METADATA] Metadati preparati: {}", metadata_json);
 
         let metadata_str =
             serde_json::to_string(&metadata_json).map_err(ClientError::Serialization)?;

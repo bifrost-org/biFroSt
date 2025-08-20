@@ -735,8 +735,8 @@ impl Filesystem for RemoteFileSystem {
             Ok(metadata) => {
                 match (metadata.kind, &metadata.ref_path) {
                     (FileKind::Symlink, Some(target)) if !target.is_empty() => {
-                        log::debug!("🔗 [READLINK] Target originale: '{}'", target);
-
+                        println!("🔗 [READLINK] Target originale: '{}'", target);
+ 
                         // ✅ FIX: Converti path assoluti in relativi
                         let resolved_target = if
                             target.starts_with(self.client.path_mounting.as_str())
@@ -744,7 +744,7 @@ impl Filesystem for RemoteFileSystem {
                             // Path assoluto → rimuovi il prefisso mount completo
                             let mount_prefix_len = self.client.path_mounting.len();
                             let relative_target = &target[mount_prefix_len..];
-                            log::debug!(
+                            println!(
                                 "🔗 [READLINK] Convertito path assoluto '{}' in relativo '{}'",
                                 target,
                                 relative_target
@@ -752,7 +752,7 @@ impl Filesystem for RemoteFileSystem {
                             relative_target
                         } else if target.starts_with('/') {
                             // Altri path assoluti → errore
-                            log::warn!(
+                            println!(
                                 "⚠️ [READLINK] Path assoluto esterno non supportato: '{}'",
                                 target
                             );
@@ -760,12 +760,12 @@ impl Filesystem for RemoteFileSystem {
                             return;
                         } else {
                             // Path già relativo
-                            log::debug!("🔗 [READLINK] Path già relativo: '{}'", target);
+                           println!("🔗 [READLINK] Path già relativo: '{}'", target);
                             target.as_str()
                         };
 
-                        log::debug!("✅ [READLINK] Target finale: '{}'", resolved_target);
-                        reply.data(resolved_target.as_bytes());
+                        println!("✅ [READLINK] Target finale: '{}'", target);
+                        reply.data(target.as_bytes());
                     }
                     (FileKind::Symlink, _) => {
                         log::error!("❌ [READLINK] Symlink senza target valido: {}", path);
@@ -1452,6 +1452,8 @@ impl Filesystem for RemoteFileSystem {
             }
         };
         let now_iso = chrono::Utc::now().to_rfc3339();
+
+        let new_target = target_path.to_string().replace(&self.client.path_mounting, "");
         //non ricordo se è corretto
         let symlink_request = WriteRequest {
             offset: None,
@@ -1463,7 +1465,7 @@ impl Filesystem for RemoteFileSystem {
             ctime: now_iso.clone(),
             crtime: now_iso,
             kind: FileKind::Symlink,
-            ref_path: Some(target_path.to_string()), // ← Target del symlink
+            ref_path: Some(new_target), // ← Target del symlink
             perm: "777".to_string(), // Symlink hanno sempre permessi 777
             mode: Mode::Write,
             data: None, // Target come contenuto
