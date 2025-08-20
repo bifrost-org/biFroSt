@@ -617,6 +617,8 @@ impl RemoteClient {
         let route_path = self.build_path("/files", Some(path));
         let url = self.build_url(&route_path);
 
+        self.cache.invalidate(&get_parent_path(&path));
+
         let headers = self.get_headers("DELETE", &route_path, None, None);
 
         let response = self
