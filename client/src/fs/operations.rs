@@ -1397,7 +1397,7 @@ impl Filesystem for RemoteFileSystem {
         reply: ReplyEntry
     ) {
         log::debug!("🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}", parent, name, link);
-
+        
         // 1. VALIDAZIONE INPUT
         let link_name = match name.to_str() {
             Some(s) => s,
@@ -1426,13 +1426,17 @@ impl Filesystem for RemoteFileSystem {
                 return;
             }
         };
-
         // 3. COSTRUISCI PATH COMPLETO DEL SYMLINK
-        let symlink_path = if parent_path == "/" {
-            format!("/{}", link_name)
+
+    
+        let symlink_path = if target_path.starts_with("./") || target_path.starts_with("../") || !target_path.starts_with('/') {
+            target_path.to_string()
+        } else if parent_path == "/" {
+            format!("{}/{}", self.client.path_mounting, link_name)
         } else {
-            format!("{}/{}", parent_path, link_name)
+            format!("{}/{}/{}", self.client.path_mounting, parent_path, link_name)
         };
+
 
         log::debug!("🔗 [SYMLINK] Creando symlink: '{}' → '{}'", symlink_path, target_path);
 
@@ -1453,7 +1457,7 @@ impl Filesystem for RemoteFileSystem {
         };
         let now_iso = chrono::Utc::now().to_rfc3339();
 
-        let new_target = target_path.to_string().replace(&self.client.path_mounting, "");
+        
         //non ricordo se è corretto
         let symlink_request = WriteRequest {
             offset: None,
@@ -1465,7 +1469,7 @@ impl Filesystem for RemoteFileSystem {
             ctime: now_iso.clone(),
             crtime: now_iso,
             kind: FileKind::Symlink,
-            ref_path: Some(new_target), // ← Target del symlink
+            ref_path: Some(symlink_path.clone()), // ← Target del symlink
             perm: "777".to_string(), // Symlink hanno sempre permessi 777
             mode: Mode::Write,
             data: None, // Target come contenuto
@@ -1798,13 +1802,15 @@ impl Filesystem for RemoteFileSystem {
             }
         };
 
+        println!("Parent path: {}, Link name: {}, Source path: {:?}", parent_path, link_name, source_path);
+
         // 4. COSTRUISCI PATH COMPLETO DEL NUOVO HARD LINK
         let link_path = if parent_path == "/" {
-            format!("/{}", link_name)
+            format!("{}/{}", self.client.path_mounting, link_name)
         } else {
             format!("{}/{}", parent_path, link_name)
         };
-
+        println!("Richiesta con {}", link_path);
         log::debug!("🔗 [LINK] Creando hard link: '{}' → '{}'", link_path, source_path);
 
         // 5. VERIFICA CHE IL LINK NON ESISTA GIÀ

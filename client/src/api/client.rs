@@ -235,7 +235,7 @@ impl RemoteClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-
+            debug_println!("{}",message);
             return Err(match status_code {
                 404 => ClientError::NotFound {
                     path: path.to_string(),
@@ -329,7 +329,6 @@ impl RemoteClient {
     }
 
     // Scrivi file (usando multipart/form-data come richiesto dall'API)
-    // ...existing code...
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         debug_println!("🔍 [INIZIO] write_file con path={}", write_request.path);
         debug_println!("CHIAMATAAAAAAAAA con {}", write_request.size);
