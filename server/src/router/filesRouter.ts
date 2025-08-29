@@ -96,18 +96,42 @@ filesRouter.put(
         return res.status(StatusCodes.NO_CONTENT).send();
       }
 
+      // link section
       if (
         (metadata.kind === FileType.SymLink ||
           metadata.kind === FileType.HardLink) &&
         metadata.refPath
       ) {
-        const linkTarget = getPath(req.userPath, metadata.refPath);
         if (metadata.kind === FileType.SymLink) {
-          // it is possible to create a dangling soft link
-          await fs.symlink(linkTarget, finalPath);
+          // FIXME: non proprio tutto tutto ma almeno parsa refPath
+          await fs.symlink(metadata.refPath, finalPath);
         } else {
-          await fs.link(linkTarget, finalPath);
+          let targetPath;
+
+          // relative hard link
+          if (metadata.refPath.includes("..")) {
+            const parentPath = getPath(finalPath, "..");
+            targetPath = getPath(parentPath, metadata.refPath);
+
+            // check if targetPath refers to another file system (outside req.userPath)
+            if (!targetPath.startsWith(req.userPath)) {
+              return next(FileError.InvalidHardLink());
+            }
+          } else {
+            // absolute hard link
+            targetPath = getPath(req.userPath, metadata.refPath);
+          }
+
+          try {
+            // check if targetPath is an existent file
+            await fs.access(targetPath);
+          } catch {
+            return next(FileError.NotFound());
+          }
+
+          await fs.link(targetPath, finalPath);
         }
+
         return res.status(StatusCodes.CREATED).send();
       }
 
@@ -240,7 +264,6 @@ filesRouter.get(
         const kind = getNodeType(entry);
         let refPath;
 
-        // TODO: check this part
         if (kind === FileType.SymLink) {
           const refPathAbs = await fs.readlink(entryPath);
 

@@ -26,6 +26,10 @@ export class FileError extends Error {
     return new FileError(message, StatusCodes.CONFLICT);
   }
 
+  static InvalidHardLink(message = "Invalid cross-device link") {
+    return new FileError(message, StatusCodes.FORBIDDEN);
+  }
+
   static InvalidPath(message = "The provided path is invalid or malformed") {
     return new FileError(message, StatusCodes.BAD_REQUEST);
   }
