@@ -722,6 +722,7 @@ impl Filesystem for RemoteFileSystem {
                 return;
             }
         };
+        println!("🔗 [READLINK] Path : '{}'", path);
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -735,36 +736,9 @@ impl Filesystem for RemoteFileSystem {
             Ok(metadata) => {
                 match (metadata.kind, &metadata.ref_path) {
                     (FileKind::Symlink, Some(target)) if !target.is_empty() => {
-                        println!("🔗 [READLINK] Target originale: '{}'", target);
- 
-                        // ✅ FIX: Converti path assoluti in relativi
-                        let resolved_target = if
-                            target.starts_with(self.client.path_mounting.as_str())
-                        {
-                            // Path assoluto → rimuovi il prefisso mount completo
-                            let mount_prefix_len = self.client.path_mounting.len();
-                            let relative_target = &target[mount_prefix_len..];
-                            println!(
-                                "🔗 [READLINK] Convertito path assoluto '{}' in relativo '{}'",
-                                target,
-                                relative_target
-                            );
-                            relative_target
-                        } else if target.starts_with('/') {
-                            // Altri path assoluti → errore
-                            println!(
-                                "⚠️ [READLINK] Path assoluto esterno non supportato: '{}'",
-                                target
-                            );
-                            reply.error(libc::ENOENT);
-                            return;
-                        } else {
-                            // Path già relativo
-                           println!("🔗 [READLINK] Path già relativo: '{}'", target);
-                            target.as_str()
-                        };
+                        println!("🔗 [READLINK] Target : '{}'", target);
 
-                        println!("✅ [READLINK] Target finale: '{}'", target);
+
                         reply.data(target.as_bytes());
                     }
                     (FileKind::Symlink, _) => {
@@ -1396,7 +1370,7 @@ impl Filesystem for RemoteFileSystem {
         link: &std::path::Path,
         reply: ReplyEntry
     ) {
-        log::debug!("🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}", parent, name, link);
+        println!("🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}", parent, name, link);
         
         // 1. VALIDAZIONE INPUT
         let link_name = match name.to_str() {
@@ -1429,16 +1403,16 @@ impl Filesystem for RemoteFileSystem {
         // 3. COSTRUISCI PATH COMPLETO DEL SYMLINK
 
     
-        let symlink_path = if target_path.starts_with("./") || target_path.starts_with("../") || !target_path.starts_with('/') {
-            target_path.to_string()
-        } else if parent_path == "/" {
-            format!("{}/{}", self.client.path_mounting, link_name)
+        let symlink_path = if parent_path == "/" {
+            format!("/{}", link_name)
         } else {
-            format!("{}/{}/{}", self.client.path_mounting, parent_path, link_name)
+            format!("{}/{}", parent_path, link_name)
         };
 
+        println!("🔗 [SYMLINK] Target risolto: '{}'", symlink_path);
 
-        log::debug!("🔗 [SYMLINK] Creando symlink: '{}' → '{}'", symlink_path, target_path);
+
+        println!("🔗 [SYMLINK] Creando symlink: '{}' → '{}'", link_name, target_path);
 
         // 4. VERIFICA CHE IL SYMLINK NON ESISTA GIÀ
         if self.path_to_inode.contains_key(&symlink_path) {
@@ -1461,7 +1435,7 @@ impl Filesystem for RemoteFileSystem {
         //non ricordo se è corretto
         let symlink_request = WriteRequest {
             offset: None,
-            path: symlink_path.clone(),
+            path: symlink_path.to_string().clone(),
             new_path: None,
             size: target_path.len() as u64,
             atime: now_iso.clone(),
@@ -1469,19 +1443,20 @@ impl Filesystem for RemoteFileSystem {
             ctime: now_iso.clone(),
             crtime: now_iso,
             kind: FileKind::Symlink,
-            ref_path: Some(symlink_path.clone()), // ← Target del symlink
+            ref_path: Some(target_path.to_string().clone()), // ← Target del symlink
             perm: "777".to_string(), // Symlink hanno sempre permessi 777
             mode: Mode::Write,
             data: None, // Target come contenuto
         };
+        println!("🔗 [SYMLINK] Creando symlink: '{}' → '{}'", link_name, target_path);
 
         match rt.block_on(async { self.client.write_file(&symlink_request).await }) {
             Ok(()) => {
-                log::debug!("✅ [SYMLINK] Symlink creato sul server con successo");
+                    debug_println!("✅ [SYMLINK] Symlink creato sul server con successo");
 
                 // 6. GENERA NUOVO INODE E REGISTRA
                 let new_inode = self.generate_inode();
-                self.register_inode(new_inode, symlink_path.clone());
+                self.register_inode(new_inode, symlink_path.to_string().clone());
 
                 // 7. OTTIENI METADATI DAL SERVER PER CONFERMA
                 let metadata_result = rt.block_on(async {
@@ -1495,7 +1470,7 @@ impl Filesystem for RemoteFileSystem {
                         let ttl = Duration::from_secs(300);
                         reply.entry(&ttl, &attr, 0);
 
-                        log::debug!("✅ [SYMLINK] Entry restituita per inode {}", new_inode);
+                        debug_println!("✅ [SYMLINK] Entry restituita per inode {}", new_inode);
                     }
                     Err(e) => {
                         reply.error(libc::EIO);
@@ -1503,7 +1478,7 @@ impl Filesystem for RemoteFileSystem {
                 }
             }
             Err(e) => {
-                log::error!("❌ [SYMLINK] Errore creazione symlink sul server: {}", e);
+                debug_println!("❌ [SYMLINK] Errore creazione symlink sul server: {}", e);
                 match e {
                     ClientError::NotFound { .. } => reply.error(libc::ENOENT),
                     ClientError::PermissionDenied(_) => reply.error(libc::EPERM),
@@ -1770,7 +1745,7 @@ impl Filesystem for RemoteFileSystem {
         newname: &OsStr,
         reply: ReplyEntry
     ) {
-        log::debug!("🔗 [LINK] ino: {}, newparent: {}, newname: {:?}", ino, newparent, newname);
+        println!("🔗 [LINK] ino: {}, newparent: {}, newname: {:?}", ino, newparent, newname);
 
         // 1. VALIDAZIONE INPUT
         let link_name = match newname.to_str() {
@@ -1806,7 +1781,7 @@ impl Filesystem for RemoteFileSystem {
 
         // 4. COSTRUISCI PATH COMPLETO DEL NUOVO HARD LINK
         let link_path = if parent_path == "/" {
-            format!("{}/{}", self.client.path_mounting, link_name)
+            format!("/{}", link_name)
         } else {
             format!("{}/{}", parent_path, link_name)
         };

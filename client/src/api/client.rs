@@ -332,7 +332,7 @@ impl RemoteClient {
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         debug_println!("🔍 [INIZIO] write_file con path={}", write_request.path);
         debug_println!("CHIAMATAAAAAAAAA con {}", write_request.size);
-
+        
         self.cache.invalidate(&get_parent_path(&write_request.path));
 
         debug_println!("Invalidazione, {}", get_parent_path(&write_request.path));
@@ -504,7 +504,7 @@ impl RemoteClient {
         } else {
             Some(vec![ExtraItem::Text(&metadata_str)])
         };
-
+        println!("path: {}, refpath: {}", route_path, write_request.ref_path.as_deref().unwrap_or_default());
         let mut headers = self.get_headers("PUT", &route_path, None, extra_items);
         // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
         headers.remove(reqwest::header::CONTENT_TYPE);
@@ -545,7 +545,7 @@ impl RemoteClient {
                 .await
                 .unwrap_or_else(|_| "No response body".to_string());
 
-            debug_println!(
+            println!(
                 "❌ [WRITE_FILE] Errore HTTP {}: {}",
                 status_code, error_body
             );
