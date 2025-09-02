@@ -140,6 +140,24 @@ impl RemoteFileSystem {
         }
     }
 
+        fn remove_path_mapping(&mut self, path: &str) {
+        if let Some(inode) = self.path_to_inode.remove(path) {
+            if let Some(current) = self.inode_to_path.get(&inode).cloned() {
+                if current == path {
+                    // Trova un altro path che punti allo stesso inode
+                    if let Some((alt_path, _)) =
+                        self.path_to_inode.iter().find(|(_, &ino)| ino == inode)
+                    {
+                        self.inode_to_path.insert(inode, alt_path.clone());
+                    } else {
+                        // Nessun path rimane: rimuovi l’inode
+                        self.inode_to_path.remove(&inode);
+                    }
+                }
+            }
+        }
+    }
+
     fn get_current_attributes(&mut self, ino: u64, path: &str, reply: ReplyAttr) {
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -734,6 +752,7 @@ impl Filesystem for RemoteFileSystem {
 
         match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => {
+                println!("Metadata: {:?}", metadata);
                 match (metadata.kind, &metadata.ref_path) {
                     (FileKind::Symlink, Some(target)) if !target.is_empty() => {
                         println!("🔗 [READLINK] Target : '{}'", target);
@@ -742,11 +761,18 @@ impl Filesystem for RemoteFileSystem {
                         reply.data(target.as_bytes());
                     }
                     (FileKind::Symlink, _) => {
-                        log::error!("❌ [READLINK] Symlink senza target valido: {}", path);
+                        println!("❌ [READLINK] Symlink senza target valido: {}", path);
                         reply.error(libc::EIO);
                     }
-                    (file_type, _) => {
-                        log::warn!("⚠️ [READLINK] '{}' non è un symlink: {:?}", path, file_type);
+                    (FileKind::RegularFile, _) => {
+                        reply.error(libc::EINVAL);
+                    }
+                    (FileKind::Directory, _) => {
+                        println!("❌ [READLINK] Tentativo di readlink su directory: {}", path);
+                        reply.error(libc::EINVAL);
+                    }
+                    (FileKind::Hardlink, _) => {
+                        println!("❌ [READLINK] Tentativo di readlink su hardlink: {}", path);
                         reply.error(libc::EINVAL);
                     }
                 }
@@ -1163,10 +1189,7 @@ impl Filesystem for RemoteFileSystem {
                 log::debug!("✅ [UNLINK] File eliminato dal server con successo");
 
                 // 8. RIMUOVI DALLA CACHE LOCALE
-                if file_inode != 0 {
-                    self.unregister_inode(file_inode);
-                    log::debug!("🗑️ [UNLINK] Inode {} rimosso dalla cache", file_inode);
-                }
+                self.remove_path_mapping(&full_path);
 
                 reply.ok();
                 log::debug!("✅ [UNLINK] Operazione completata per: {}", full_path);
@@ -1174,9 +1197,7 @@ impl Filesystem for RemoteFileSystem {
             Err(ClientError::NotFound { .. }) => {
                 log::warn!("⚠️ [UNLINK] File già eliminato dal server: {}", full_path);
                 // Rimuovi comunque dalla cache locale se presente
-                if file_inode != 0 {
-                    self.unregister_inode(file_inode);
-                }
+                self.remove_path_mapping(&full_path);
                 reply.ok(); // Su Unix, eliminare un file già eliminato non è un errore
             }
             Err(e) => {
@@ -1870,7 +1891,7 @@ impl Filesystem for RemoteFileSystem {
 
                 // 9. REGISTRA STESSO INODE PER IL NUOVO PATH
                 // Hard link condivide lo stesso inode del file originale
-                self.inode_to_path.insert(ino, link_path.clone()); // ✅ Aggiorna mapping inode -> path più recente
+                //self.inode_to_path.insert(ino, link_path.clone()); // ✅ Aggiorna mapping inode -> path più recente
                 self.path_to_inode.insert(link_path.clone(), ino); // ✅ Aggiungi nuovo path -> inode
 
                 log::debug!("🔗 [LINK] Inode {} ora mappato anche a '{}'", ino, link_path);
