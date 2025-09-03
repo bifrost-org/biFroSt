@@ -245,6 +245,7 @@ Additionally:
   - `mode` is `"truncate"` but the file at `path` does not exist;
   - The file at `path` does not exist and a `newPath` was specified (cannot move non-existent file).
 - `409 Conflict`: File already exists.
+- `507 Insufficient Storage`: The server cannot store the content because there is no space left on the device.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 ## DELETE `/files/{path}`
@@ -351,6 +352,7 @@ This endpoint does not require a request body.
 - `400 Bad Request`: The provided path is invalid or malformed.
 - `404 Not Found`: Parent directory does not exist.
 - `409 Conflict`: The directory at the provided path already exists.
+- `507 Insufficient Storage`: The server cannot store the content because there is no space left on the device.
 - `500 Internal Server Error`: An unexpected error occurred on the server.
 
 <br>

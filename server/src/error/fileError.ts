@@ -42,6 +42,10 @@ export class FileError extends Error {
     return new FileError(message, StatusCodes.NOT_FOUND);
   }
 
+  static NoSpaceLeft(message = "No space left on device") {
+    return new FileError(message, StatusCodes.INSUFFICIENT_STORAGE);
+  }
+
   static OperationNotPermitted(message = "") {
     return new FileError(message, StatusCodes.FORBIDDEN);
   }

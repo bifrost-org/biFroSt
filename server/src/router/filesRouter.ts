@@ -103,7 +103,6 @@ filesRouter.put(
         metadata.refPath
       ) {
         if (metadata.kind === FileType.SymLink) {
-          // FIXME: non proprio tutto tutto ma almeno parsa refPath
           await fs.symlink(metadata.refPath, finalPath);
         } else {
           let targetPath;
@@ -205,6 +204,8 @@ filesRouter.put(
             "Creating hard links to directories is not allowed"
           )
         );
+      } else if (code === "ENOSPC") {
+        next(FileError.NoSpaceLeft());
       } else {
         next(e);
       }
@@ -359,6 +360,8 @@ filesRouter.post(
         next(FileError.ParentDirectoryNotFound());
       } else if (code === "EEXIST") {
         next(FileError.DirectoryAlreadyExists());
+      } else if (code === "ENOSPC") {
+        next(FileError.NoSpaceLeft());
       } else {
         next(e);
       }
