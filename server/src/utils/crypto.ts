@@ -1,11 +1,12 @@
 import crypto from "crypto";
+import { env } from "../validation/envSchema";
 
 const ALGORITHM = "aes-256-gcm";
 
-if (!process.env.MASTER_KEY) {
+if (!env.MASTER_KEY) {
   throw new Error("MASTER_KEY not set in .env");
 }
-const MASTER_KEY = Buffer.from(process.env.MASTER_KEY, "hex"); // 32 byte
+const MASTER_KEY = Buffer.from(env.MASTER_KEY, "hex"); // 32 byte
 
 export function generateApiKey(): string {
   return crypto.randomBytes(16).toString("hex");

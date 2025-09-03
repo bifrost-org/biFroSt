@@ -1,11 +1,8 @@
-import * as dotenv from "dotenv";
 import express from "express";
 import morgan from "morgan";
 import { sinkErrorHandler } from "./middleware/error";
 import { filesRouter } from "./router/filesRouter";
 import { usersRouter } from "./router/usersRouter";
-
-dotenv.config();
 
 const app = express();
 

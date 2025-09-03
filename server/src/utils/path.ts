@@ -1,11 +1,10 @@
 import path from "path";
+import { env } from "../validation/envSchema";
 
-export const USERS_PATH = process.env.USERS_PATH!;
-
-export function getPath(a: string | undefined, b: string): string {
-  return path.join(a!, b);
+export function getPath(a: string, b: string): string {
+  return path.join(a, b);
 }
 
 export function getUserPath(username: string, apiKey: string): string {
-  return getPath(USERS_PATH, `${username}_${apiKey}`);
+  return getPath(env.USERS_PATH, `${username}_${apiKey}`);
 }

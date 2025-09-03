@@ -1,10 +1,6 @@
-import * as dotenv from "dotenv";
-dotenv.config();
-
 import app from "./app";
+import { env } from "./validation/envSchema";
 
-const port = process.env.PORT ? parseInt(process.env.PORT) : 3000; // default port 3000
+export const server = app.listen(env.PORT, () => {});
 
-export const server = app.listen(port, () => {});
-
-console.log(`Server inizialized on port ${port}`);
+console.log(`Server inizialized on port ${env.PORT}`);
