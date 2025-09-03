@@ -83,6 +83,17 @@ export async function checkAuth(
 
     req.userPath = getUserPath(user.username, user.apiKey);
 
+    try {
+      await fs.stat(req.userPath);
+    } catch {
+      // if 'userPath' does not exist it is created
+      try {
+        await fs.mkdir(req.userPath);
+      } catch (err) {
+        return next(err);
+      }
+    }
+
     next();
   } catch (e) {
     next(e);

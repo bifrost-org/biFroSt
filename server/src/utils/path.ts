@@ -11,6 +11,7 @@ export function getUserPath(username: string, apiKey: string): string {
   return getPath(env.USERS_PATH, `${username}_${apiKey}`);
 }
 
+// Check existance and permissions of USERS_PATH
 export async function checkUsersPath(): Promise<void> {
   const usersPath = path.resolve(env.USERS_PATH);
 

@@ -20,7 +20,7 @@ usersRouter.post(
     try {
       await fs.mkdir(getUserPath(user.username, user.apiKey));
     } catch (err) {
-      console.error("Failed to create user home directory: ", err);
+      return next(Error("Failed to create user home directory: " + err));
     }
 
     res
