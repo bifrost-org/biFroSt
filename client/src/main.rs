@@ -1,4 +1,6 @@
 use clap::{Parser, Subcommand};
+use daemonize::Daemonize;
+use std::io::Write; // per writeln!
 mod commands;
 
 #[derive(Parser)]
@@ -21,22 +23,55 @@ struct Cli {
 enum Commands {
     Config,
     Register,
-    Start,
+    Start {
+        #[arg(long, short = 'd')]
+        detached: bool,
+    },
+    Stop,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Config => {
-            commands::config::run().await;
+    // Se è start con detached, daemonizza PRIMA del runtime
+    if let Commands::Start { detached: true } = &cli.command {
+        let cwd = std::env::current_dir().expect("cannot get current dir");
+
+        let daemonize = Daemonize::new()
+            // Mantieni la working dir corrente per non rompere path relativi (config, ecc.)
+            .working_directory(&cwd);
+
+
+        if let Err(e) = daemonize.start() {
+            eprintln!("daemonize failed: {}", e); // visibile sul terminale
+            std::process::exit(1);
         }
-        Commands::Register => {
-            commands::register::run().await;
-        }
-        Commands::Start => {
-            commands::start::run().await;
-        }
+
+
     }
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime");
+
+    rt.block_on(async {
+        match cli.command {
+            Commands::Config => {
+                commands::config::run().await;
+            }
+            Commands::Register => {
+                commands::register::run().await;
+            }
+            Commands::Start { detached } => {
+                // Non fare più daemonize qui dentro.
+                // Aggiungi una stampa subito per verificare i log:
+                println!("entering start::run (detached={}) pid={}", detached, std::process::id());
+                commands::start::run(detached).await;
+            }
+            Commands::Stop => {
+                commands::stop::run().await;
+            }
+        }
+    });
 }

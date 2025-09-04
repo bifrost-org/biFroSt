@@ -1,12 +1,17 @@
 use std::path::PathBuf;
 
-use fuser::{mount2, MountOption};
-use remotefs::{
-    api::client::RemoteClient, config::settings::Config, fs::operations::RemoteFileSystem,
+use fuser::{ mount2, MountOption };
+use bifrost::{
+    api::client::RemoteClient,
+    config::settings::Config,
+    fs::operations::RemoteFileSystem,
     util::auth::UserKeys,
 };
 
-pub async fn run() {
+pub async fn run(detached: bool) {
+
+
+
     let config = match Config::from_file() {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -53,6 +58,14 @@ pub async fn run() {
     }
 }
 
+pub fn counting_of_processes() -> usize {
+    if let Ok(output) = std::process::Command::new("pgrep").arg("bifrost").output() {
+        let pids = String::from_utf8_lossy(&output.stdout);
+        return pids.lines().count();
+    }
+    0
+}
+
 fn prepare_mount_point(mount_point: &PathBuf) {
     println!("🔍 Preparing mount point: {:?}", mount_point);
 
@@ -78,14 +91,10 @@ fn prepare_mount_point(mount_point: &PathBuf) {
 
         // Unmount + remotion
         println!("🔄 umount -l {:?}", mount_point);
-        let _ = std::process::Command::new("umount")
-            .arg(mount_point)
-            .output();
+        let _ = std::process::Command::new("umount").arg(mount_point).output();
 
         println!("🗑️ rmdir {:?}", mount_point);
-        let _ = std::process::Command::new("rmdir")
-            .arg(mount_point)
-            .output();
+        let _ = std::process::Command::new("rmdir").arg(mount_point).output();
     } else {
         println!("📁 Mount point not found in parent directory");
     }

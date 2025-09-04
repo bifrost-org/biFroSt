@@ -2,10 +2,10 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use remotefs::api::client::RemoteClient;
-use remotefs::config::settings::Config;
-use remotefs::util::auth::UserKeys;
-use remotefs::util::fs::get_current_user;
+use bifrost::api::client::RemoteClient;
+use bifrost::config::settings::Config;
+use bifrost::util::auth::UserKeys;
+use bifrost::util::fs::get_current_user;
 
 pub async fn run() {
     let config = match Config::from_file() {

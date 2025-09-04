@@ -1,4 +1,4 @@
-use remotefs::config::settings::{Config, ConfigError};
+use bifrost::config::settings::{Config, ConfigError};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::Duration;
