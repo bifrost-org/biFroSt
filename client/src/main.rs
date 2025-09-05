@@ -24,17 +24,25 @@ enum Commands {
     Config,
     Register,
     Start {
-        #[arg(long, short = 'd')]
+        #[arg(long = "detached", short = 'd')]
         detached: bool,
+        #[arg(long = "enable-autorun", short ='e')]
+        enable_autorun: bool,
     },
-    Stop,
+    Stop {
+        #[arg(long = "disable-autorun", short = 'd')]
+        disable_autorun: bool,
+    },
 }
+
 
 fn main() {
     let cli = Cli::parse();
 
+
+
     // Se è start con detached, daemonizza PRIMA del runtime
-    if let Commands::Start { detached: true } = &cli.command {
+    if let Commands::Start { detached: true, .. } = &cli.command {
         let cwd = std::env::current_dir().expect("cannot get current dir");
 
         let daemonize = Daemonize::new()
@@ -63,14 +71,14 @@ fn main() {
             Commands::Register => {
                 commands::register::run().await;
             }
-            Commands::Start { detached } => {
+            Commands::Start { detached, enable_autorun } => {
                 // Non fare più daemonize qui dentro.
                 // Aggiungi una stampa subito per verificare i log:
                 println!("entering start::run (detached={}) pid={}", detached, std::process::id());
-                commands::start::run(detached).await;
+                commands::start::run(detached, enable_autorun).await;
             }
-            Commands::Stop => {
-                commands::stop::run().await;
+            Commands::Stop { disable_autorun } => {
+                commands::stop::run(disable_autorun).await;
             }
         }
     });

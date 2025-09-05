@@ -8,7 +8,7 @@ use bifrost::{
     util::auth::UserKeys,
 };
 
-pub async fn run(detached: bool) {
+pub async fn run(detached: bool, enable_service: bool) {
 
 
 
@@ -19,6 +19,18 @@ pub async fn run(detached: bool) {
             std::process::exit(1);
         }
     };
+
+        if enable_service {
+            let exe = std::env::current_exe().expect("cannot get current exe path");
+            match install_systemd_user_service("bifrost", &exe) {
+                Ok(()) => println!("Servizio systemd installato e abilitato (bifrost)."),
+                Err(e) => eprintln!("Installazione service fallita: {}", e),
+            }
+        }
+
+
+
+
 
     println!("🚀 Start bifrost...");
     println!("📡 Server: {}", config.server_full_url());
@@ -57,6 +69,95 @@ pub async fn run(detached: bool) {
         Err(e) => eprintln!("❌ Task error: {}", e),
     }
 }
+
+
+fn install_systemd_user_service(service_name: &str, exec: &std::path::Path) -> Result<(), String> {
+    use std::io::Write;
+
+    let home = std::env::var("HOME").map_err(|e| format!("HOME not set: {}", e))?;
+    let dir = format!("{}/.config/systemd/user", home);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir failed: {}", e))?;
+
+    let unit_path = format!("{}/{}.service", dir, service_name);
+    let tmp_path = format!("{}.tmp", &unit_path);
+
+    // Ensure exec path is absolute
+    let exec_path = exec
+        .canonicalize()
+        .unwrap_or_else(|_| exec.to_path_buf())
+        .to_string_lossy()
+        .into_owned();
+
+    // Compose a clean unit file. Do NOT daemonize in the ExecStart: systemd manages the process.
+    let work_dir = exec.parent().unwrap_or(std::path::Path::new("/")).to_string_lossy().into_owned();
+    let content = format!(
+        r#"[Unit]
+Description=Bifrost RemoteFS Client (user)
+After=network.target
+# limita i tentativi: al massimo 5 riavvii in 10 minuti
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory={work_dir}
+Environment=HOME={home}
+ExecStart={exec} start
+# restart solo se fallisce (exit ≠ 0), non sempre
+Restart=on-failure
+# attende 10s prima di provare a riavviare
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+"#,
+        exec = exec_path,
+        home = home,
+        work_dir = work_dir,
+    );
+
+    // Write atomically: tmp file then rename
+    std::fs::write(&tmp_path, content.as_bytes())
+        .map_err(|e| format!("write temp unit failed {}: {}", tmp_path, e))?;
+    // set permissions to 0644
+    let mut perms = std::fs::metadata(&tmp_path)
+        .map_err(|e| format!("stat tmp file failed: {}", e))?
+        .permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&tmp_path, perms)
+            .map_err(|e| format!("set_permissions failed: {}", e))?;
+    }
+
+    std::fs::rename(&tmp_path, &unit_path)
+        .map_err(|e| format!("rename unit failed {} -> {}: {}", tmp_path, unit_path, e))?;
+
+    // reload and enable using --user (no sudo)
+    let status = std::process::Command::new("systemctl")
+        .arg("--user")
+        .arg("daemon-reload")
+        .status()
+        .map_err(|e| format!("systemctl --user daemon-reload failed: {}", e))?;
+    if !status.success() {
+        return Err("systemctl --user daemon-reload failed".into());
+    }
+    let status = std::process::Command::new("systemctl")
+        .arg("--user")
+        .arg("enable")
+        .arg("--now")
+        .arg(service_name)
+        .status()
+        .map_err(|e| format!("systemctl --user enable failed: {}", e))?;
+    if !status.success() {
+        return Err("systemctl --user enable --now failed".into());
+    }
+    Ok(())
+}
+
 
 pub fn counting_of_processes() -> usize {
     if let Ok(output) = std::process::Command::new("pgrep").arg("bifrost").output() {
