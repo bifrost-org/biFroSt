@@ -80,9 +80,9 @@ fi
 REPO_URL="https://github.com/bifrost-org/biFroSt"
 INSTALL_DIR="$HOME/biFroSt"
 
-info "Cloning repository into $HOME..."
+info "Cloning repository into $INSTALL_DIR..."
 rm -rf "$INSTALL_DIR"
-git clone --depth 1 "$REPO_URL" "$HOME"
+git clone --depth 1 "$REPO_URL" "$INSTALL_DIR"
 
 # Build the project
 cd "$INSTALL_DIR/client"
@@ -100,3 +100,6 @@ if [[ -f "$TARGET_BIN" ]]; then
 else
     error "Build failed: $TARGET_BIN not found"
 fi
+
+info "Cleaning up source repository..."
+rm -rf "$INSTALL_DIR"
