@@ -14,7 +14,7 @@ use moka::sync::Cache as MokaCache;
 #[allow(unused_macros)]
 macro_rules! debug_println {
     ($($arg:tt)*) => {
-        //println!($($arg)*); // decommenta per abilitare
+        println!($($arg)*); // leave the comment to enable debug logs
     };
 }
 
@@ -86,22 +86,6 @@ impl RemoteClient {
         format!("{}{}", self.base_url.trim_end_matches('/'), path)
     }
 
-    async fn handle_response<T>(&self, response: reqwest::Response) -> Result<T, ClientError>
-    where
-        T: serde::de::DeserializeOwned,
-    {
-        let status = response.status();
-
-        if status.is_success() {
-            Ok(response.json().await?)
-        } else {
-            let message = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            Err(self.map_http_error(status.as_u16(), message))
-        }
-    }
 
     async fn handle_empty_response(&self, response: reqwest::Response) -> Result<(), ClientError> {
         let status = response.status();
@@ -156,9 +140,8 @@ impl RemoteClient {
         final_headers
     }
 
-    // Ottieni metadati di un singolo file/directory
+    // Obtain metadata for a single file/directory
     pub async fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
-        // ✅ CASO SPECIALE: ROOT DIRECTORY
         if path == "/" {
             let now_iso = chrono::Utc::now().to_rfc3339();
             return Ok(MetaFile {
@@ -175,14 +158,11 @@ impl RemoteClient {
             });
         }
 
-        // ✅ STRATEGIA CORRETTA: Separa parent directory e nome file
         let parent_path = get_parent_path(path);
         let file_name = get_file_name(path);
 
-        // Lista la directory padre
         let parent_listing = self.list_directory(&parent_path).await?;
 
-        // Cerca il file specifico nella lista
         if let Some(found_file) = parent_listing.files.iter().find(|f| f.name == file_name) {
             let mut result = found_file.clone();
             result.name = path.to_string(); // Mantieni il path completo
@@ -198,18 +178,15 @@ impl RemoteClient {
         let route_path = self.build_path("/list", Some(path));
         let url = self.build_url(&route_path);
         
-        debug_println!("📁 [LIST_DIR] URL costruito: {}", url);
         
         let headers = self.get_headers("GET", &route_path, None, None);
         
         match self.cache.get(path) {
             Some(cached_response) => {
-                debug_println!("📁 [LIST_DIR] Risposta dalla cache: {}", path);
                 return Ok(cached_response.clone());
             }
             None => {
-                debug_println!("📁 [LIST_DIR] Nessuna risposta in cache per: {}", path);
-                println!("RICHIESTA METADATI");
+                debug_println!("Metadati requested from server for path: {}", path);
             }
         }
 
@@ -223,12 +200,12 @@ impl RemoteClient {
         {
             Ok(r) => r,
             Err(e) => {
-                debug_println!("❌ [LIST_DIR] Errore nell'invio della richiesta: {}", e);
+                debug_println!("❌ [LIST_DIR] Error on sending request: {}", e);
                 return Err(ClientError::Http(e));
             }
         };
 
-        // Gestisci errori HTTP
+        // Manage HTTP errors
         if !response.status().is_success() {
             let status_code = response.status().as_u16();
             let message = response
@@ -248,7 +225,6 @@ impl RemoteClient {
             });
         }
 
-        // Deserializza direttamente come Vec<MetaFile>
         let files: Vec<MetaFile> = match response.json::<Vec<MetaFile>>().await {
             Ok(f) => f,
             Err(e) => {
@@ -256,7 +232,6 @@ impl RemoteClient {
             }
         };
 
-        // Crea DirectoryListing - MANTIENI i nomi originali dall'API
         let directory_listing = DirectoryListing { files };
 
         self.cache.insert(path.to_string(), directory_listing.clone());
@@ -264,7 +239,6 @@ impl RemoteClient {
         Ok(directory_listing)
     }
 
-    // Leggi contenuto file con support per offset e size
     pub async fn read_file(
         &self,
         path: &str,
@@ -299,20 +273,16 @@ impl RemoteClient {
             .send()
             .await
             .map_err(|e| {
-                debug_println!("❌ [READ_FILE] Errore nell'invio della richiesta: {}", e);
+                debug_println!("❌ [READ_FILE] Error on sending request: {}", e);
                 ClientError::Http(e)
             })?;
 
         let status = response.status();
-        debug_println!("📖 [READ_FILE] Risposta ricevuta: status={}", status);
+        debug_println!("📖 [READ_FILE] Response received: status={}", status);
 
-        // 2. Gestisci risposta binaria, non JSON
         if response.status().is_success() {
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-            debug_println!(
-                "Il file che mi hai dato dal server è grande: {} byte",
-                data.len()
-            );
+
             Ok(FileContent { data })
         } else {
             let message = response
@@ -328,19 +298,15 @@ impl RemoteClient {
         }
     }
 
-    // Scrivi file (usando multipart/form-data come richiesto dall'API)
+    // Write file (using multipart/form-data as required by the API)
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
-        debug_println!("🔍 [INIZIO] write_file con path={}", write_request.path);
-        debug_println!("CHIAMATAAAAAAAAA con {}", write_request.size);
         
         self.cache.invalidate(&get_parent_path(&write_request.path));
 
-        debug_println!("Invalidazione, {}", get_parent_path(&write_request.path));
 
         let route_path = self.build_path("/files", Some(&write_request.path));
         let url = self.build_url(&route_path);
-        // === VALIDAZIONE PRE-RICHIESTA SECONDO SPEC ===
-        // 1. Validazione refPath per soft/hard link
+
         match write_request.kind {
             FileKind::Symlink | FileKind::Hardlink => {
                 if write_request.ref_path.is_none() {
@@ -354,7 +320,6 @@ impl RemoteClient {
             _ => {}
         }
 
-        // 2. Validazione mode / contenuto / offset
         let has_content = write_request
             .data
             .as_ref()
@@ -362,12 +327,11 @@ impl RemoteClient {
             .unwrap_or(false);
         match write_request.mode {
             Mode::Write => {
-                // content opzionale (metadata-only update permesso)
-                // size deve riflettere i bytes del content se presente
+
                 if has_content
                     && (write_request.size as usize) != write_request.data.as_ref().unwrap().len()
                 {
-                    debug_println!("❌ [WRITE_FILE] Size dichiarato ≠ content length (write)");
+                    debug_println!("❌ [WRITE_FILE] Size declared ≠ content length (write)");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Declared size does not match content length (write)".into(),
@@ -383,7 +347,7 @@ impl RemoteClient {
                     });
                 }
                 if (write_request.size as usize) != write_request.data.as_ref().unwrap().len() {
-                    debug_println!("❌ [WRITE_FILE] Size dichiarato ≠ content length (append)");
+                    debug_println!("❌ [WRITE_FILE] Size declared ≠ content length (append)");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Declared size does not match content length (append)".into(),
@@ -392,21 +356,21 @@ impl RemoteClient {
             }
             Mode::WriteAt => {
                 if !has_content {
-                    debug_println!("❌ [WRITE_FILE] Content richiesto in write_at");
+                    debug_println!("❌ [WRITE_FILE] Content required in write_at");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Content required for write_at".into(),
                     });
                 }
                 if write_request.offset.is_none() {
-                    debug_println!("❌ [WRITE_FILE] Offset richiesto in write_at");
+                    debug_println!("❌ [WRITE_FILE] Offset required in write_at");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Offset required for write_at".into(),
                     });
                 }
                 if (write_request.size as usize) != write_request.data.as_ref().unwrap().len() {
-                    debug_println!("❌ [WRITE_FILE] Size dichiarato ≠ content length (write_at)");
+                    debug_println!("❌ [WRITE_FILE] Size declared ≠ content length (write_at)");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Declared size does not match content length (write_at)".into(),
@@ -414,28 +378,26 @@ impl RemoteClient {
                 }
             }
             Mode::Truncate => {
-                // content ignorato secondo specifica
+                // Ignore content as per spec
                 if has_content {
-                    debug_println!("ℹ️ [WRITE_FILE] Content ignorato in truncate");
+                    debug_println!("ℹ️ [WRITE_FILE] Content ignored in truncate");
                 }
-                // size = dimensione finale richiesta
+                // size = final requested size
             }
         }
 
-        // 3. Normalizza il size da inviare secondo la semantica
         let effective_size: u64 = match write_request.mode {
-            Mode::Truncate => write_request.size, // dimensione finale
+            Mode::Truncate => write_request.size, // final requested size
             Mode::Write | Mode::Append | Mode::WriteAt => {
                 if has_content {
                     write_request.data.as_ref().unwrap().len() as u64
                 } else {
-                    // metadata-only update: usa size dichiarato (già validato sopra)
+                    // metadata-only update: use declared size (already validated above)
                     write_request.size
                 }
             }
         };
 
-        // 4. Se è un link (soft/hard) e viene passato del contenuto, ignoralo
         let send_data: Vec<u8> = match write_request.kind {
             FileKind::Symlink | FileKind::Hardlink => {
                 if has_content {
@@ -447,10 +409,7 @@ impl RemoteClient {
         };
 
         // METADATA JSON
-        debug_println!(
-            "🔍 [DATA] Dimensione dati effettiva: {} bytes",
-            send_data.len()
-        );
+
         let mut metadata_map = serde_json::Map::new();
         metadata_map.insert("size".to_string(), json!(effective_size));
         metadata_map.insert(
@@ -489,7 +448,6 @@ impl RemoteClient {
         }
 
         let metadata_json = serde_json::Value::Object(metadata_map);
-        println!("🔍 [METADATA] Metadati preparati: {}", metadata_json);
 
         let metadata_str =
             serde_json::to_string(&metadata_json).map_err(ClientError::Serialization)?;
@@ -504,13 +462,10 @@ impl RemoteClient {
         } else {
             Some(vec![ExtraItem::Text(&metadata_str)])
         };
-        println!("path: {}, refpath: {}", route_path, write_request.ref_path.as_deref().unwrap_or_default());
         let mut headers = self.get_headers("PUT", &route_path, None, extra_items);
-        // Headers - NON includere Content-Type (reqwest lo gestisce automaticamente)
+        // Headers - NOT include Content-Type (reqwest handles it automatically)
         headers.remove(reqwest::header::CONTENT_TYPE);
-        debug_println!("🔍 [HEADERS] Headers finali: {:?}", headers);
 
-        debug_println!("🔍 [FORM] Preparazione form multipart...");
         let mut form = reqwest::multipart::Form::new().text("metadata", metadata_str.clone());
         if include_content {
             form = form.part(
@@ -520,13 +475,8 @@ impl RemoteClient {
                     .mime_str("application/octet-stream")
                     .map_err(ClientError::Http)?,
             );
-        } else {
-            debug_println!("ℹ️ [WRITE_FILE] Nessun contenuto: update solo metadata (permessi/timestamp)");
-        }
+        } 
 
-        debug_println!("✅ [FORM] Form multipart creato");
-
-        debug_println!("🔍 [REQUEST] Invio richiesta HTTP PUT...");
         let response = self
             .http_client
             .put(&url)
@@ -537,7 +487,6 @@ impl RemoteClient {
             .map_err(ClientError::Http)?;
 
         let status_code = response.status().as_u16();
-        debug_println!("✅ [RESPONSE] status={}", status_code);
 
         if !(200..=299).contains(&status_code) {
             let error_body = response
@@ -545,7 +494,7 @@ impl RemoteClient {
                 .await
                 .unwrap_or_else(|_| "No response body".to_string());
 
-            println!(
+            debug_println!(
                 "❌ [WRITE_FILE] Errore HTTP {}: {}",
                 status_code, error_body
             );
@@ -583,25 +532,18 @@ impl RemoteClient {
                     message: error_body,
                 },
             });
-        } else {
-            match status_code {
-                201 => {debug_println!("✅ [WRITE_FILE] Creato (201)");},
-                204 => {debug_println!("✅ [WRITE_FILE] Aggiornato / spostato (204)");},
-                _ => {debug_println!("✅ [WRITE_FILE] Success (status={})", status_code);},
-            }
         }
 
         self.handle_empty_response(response).await
     }
 
-    // Crea directory
+    // Create directory
     pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
         let route_path = self.build_path("/mkdir", Some(path));
         let url = self.build_url(&route_path);
         
 
         self.cache.invalidate(&get_parent_path(&path)); //invalidate the father entries
-        debug_println!("invalido {}", get_parent_path(&path));
 
 
         let headers = self.get_headers("POST", &route_path, None, None);
@@ -611,7 +553,7 @@ impl RemoteClient {
         self.handle_empty_response(response).await
     }
 
-    // Elimina file o directory
+    // Delete file or directory
     pub async fn delete(&self, path: &str) -> Result<(), ClientError> {
         let route_path = self.build_path("/files", Some(path));
         let url = self.build_url(&route_path);

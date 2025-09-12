@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
 use daemonize::Daemonize;
-use std::io::Write; // per writeln!
 mod commands;
 
 #[derive(Parser)]
@@ -75,7 +74,7 @@ fn main() {
                 // Non fare più daemonize qui dentro.
                 // Aggiungi una stampa subito per verificare i log:
                 println!("entering start::run (detached={}) pid={}", detached, std::process::id());
-                commands::start::run(detached, enable_autorun).await;
+                commands::start::run(enable_autorun).await;
             }
             Commands::Stop { disable_autorun } => {
                 commands::stop::run(disable_autorun).await;
