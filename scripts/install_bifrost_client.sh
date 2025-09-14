@@ -27,15 +27,24 @@ if [[ "$OS" == "Linux" ]]; then
       info "libfuse3-dev already installed."
     else
       # try to install libfuse3-dev; if not available, fallback message
-      sudo apt-get update
-      if apt-get install -y libfuse3-dev; then
+      if sudo apt-get install -y libfuse3-dev; then
         info "libfuse3-dev installed."
       else
         error "libfuse3-dev not available in apt repos. You may need a newer distro or install libfuse from source."
       fi
     fi
-    # ensure compilers and pkg-config
-    sudo apt-get install -y $PKGS || error "Failed to install build-essential/pkg-config."
+
+    if dpkg -s build-essential >/dev/null 2>&1; then
+      info "build-essential already installed."
+    else
+      sudo apt-get install -y build-essential || error "Failed to install build-essential."
+    fi
+
+    if dpkg -s pkg-config >/dev/null 2>&1; then
+      info "pkg-config already installed."
+    else
+      sudo apt-get install -y pkg-config || error "Failed to install pkg-config."
+    fi
 
   # RHEL/Fedora check
   elif command -v yum >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
