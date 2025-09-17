@@ -8,13 +8,16 @@ use crate::util::date::format_datetime;
 use crate::util::fs::format_permissions;
 use crate::util::path::{get_file_name, get_parent_path};
 use std::time::Duration;
+use tokio::time::sleep;
 
 use moka::sync::Cache as MokaCache;
+
+const CONSISTENCY_DELAY_MS: u64 = 30;
 
 #[allow(unused_macros)]
 macro_rules! debug_println {
     ($($arg:tt)*) => {
-        println!($($arg)*); // leave the comment to enable debug logs
+        //println!($($arg)*); // leave the comment to enable debug logs
     };
 }
 
@@ -282,7 +285,7 @@ impl RemoteClient {
 
         if response.status().is_success() {
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-
+            println!("📖 [READ_FILE] File content received: {:?} ", data);
             Ok(FileContent { data })
         } else {
             let message = response
@@ -533,6 +536,9 @@ impl RemoteClient {
                 },
             });
         }
+
+                sleep(Duration::from_millis(30)).await;
+
 
         self.handle_empty_response(response).await
     }

@@ -1,6 +1,7 @@
 use crate::api::client::{ ClientError, RemoteClient };
 use crate::api::models::*;
 use crate::fs::attributes::{ self, new_directory_attr, new_file_attr };
+use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{
     FileAttr,
     FileType,
@@ -17,10 +18,11 @@ use std::ffi::OsStr;
 use std::fs::metadata;
 use std::time::{ Duration, SystemTime };
 
+
 #[allow(unused_macros)]
 macro_rules! debug_println {
     ($($arg:tt)*) => {
-        println!($($arg)*); // decommenta per abilitare
+        //println!($($arg)*); // decommenta per abilitare
     };
 }
 
@@ -172,7 +174,7 @@ impl RemoteFileSystem {
             Ok(metadata) => {
                 // 2. CONVERTI IN ATTRIBUTI FUSE
                 let attr = attributes::from_metadata(ino, &metadata);
-                let ttl = Duration::from_secs(300); // Cache TTL
+                let ttl = Duration::from_secs(1); // Cache TTL
 
                 // 3. RESTITUISCI A FUSE
                 reply.attr(&ttl, &attr);
@@ -270,14 +272,14 @@ impl Filesystem for RemoteFileSystem {
             match rt.block_on(async { self.client.get_file_metadata(&parent_path).await }) {
                 Ok(metadata) => {
                     let attr = attributes::from_metadata(parent, &metadata);
-                    let ttl = Duration::from_secs(300);
+                    let ttl = Duration::from_secs(1);
                     reply.entry(&ttl, &attr, 0);
                     return;
                 }
                 Err(_) => {
                     // Fallback per directory corrente
                     let attr = attributes::new_directory_attr(parent, 0o755);
-                    let ttl = Duration::from_secs(300);
+                    let ttl = Duration::from_secs(1);
                     reply.entry(&ttl, &attr, 0);
                     return;
                 }
@@ -308,7 +310,7 @@ impl Filesystem for RemoteFileSystem {
                 attributes::new_directory_attr(grandparent_ino, 0o755)
             };
 
-            let ttl = Duration::from_secs(300);
+            let ttl = Duration::from_secs(1);
             reply.entry(&ttl, &parent_attr, 0);
             return;
         }
@@ -343,7 +345,7 @@ impl Filesystem for RemoteFileSystem {
             match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                 Ok(metadata) => {
                     let attr = attributes::from_metadata(existing_inode, &metadata);
-                    let ttl = Duration::from_secs(300);
+                    let ttl = Duration::from_secs(1);
                     reply.entry(&ttl, &attr, 0);
                     return;
                 }
@@ -357,7 +359,7 @@ impl Filesystem for RemoteFileSystem {
                     log::error!("❌ [LOOKUP] Errore verifica cache: {}", e);
                     // Usa cache comunque se server non raggiungibile
                     let attr = attributes::new_file_attr(existing_inode, 0, 0o644);
-                    let ttl = Duration::from_secs(300);
+                    let ttl = Duration::from_secs(1);
                     reply.entry(&ttl, &attr, 0);
                     return;
                 }
@@ -384,7 +386,7 @@ impl Filesystem for RemoteFileSystem {
 
                 // Converti metadati e restituisci
                 let attr = attributes::from_metadata(new_inode, &metadata);
-                let ttl = Duration::from_secs(300);
+                let ttl = Duration::from_secs(1);
                 reply.entry(&ttl, &attr, 0);
             }
             Err(ClientError::NotFound { .. }) => {
@@ -407,7 +409,7 @@ impl Filesystem for RemoteFileSystem {
 
         if ino == 1 {
             let attr = attributes::new_directory_attr(1, 0o755);
-            let ttl = Duration::from_secs(300);
+            let ttl = Duration::from_secs(1);
             reply.attr(&ttl, &attr);
             return;
         }
@@ -449,7 +451,7 @@ impl Filesystem for RemoteFileSystem {
                 debug_println!("    mtime: {:?}", attr.mtime);
                 debug_println!("    ctime: {:?}", attr.ctime);
 
-                let ttl = Duration::from_secs(300);
+                let ttl = Duration::from_secs(1);
                 reply.attr(&ttl, &attr);
             }
             Err(ClientError::NotFound { .. }) => {
@@ -706,16 +708,50 @@ impl Filesystem for RemoteFileSystem {
             reply.error(libc::EPERM);
             return;
         }
-
-        // D) TOUCH (modifica timestamp) - IMPLEMENTAZIONE FUTURA
-        if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
-            log::debug!("🕒 [SETATTR] Vim modifica timestamp - IGNORANDO per stabilità");
-
-            // ✅ FIX VIM: Ignora le modifiche timestamp e restituisci attributi attuali
-            // Questo previene i warning "file has been changed" di vim
-            self.get_current_attributes(ino, &path, reply);
-            return;
+if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
+    // Converti TimeOrNow → RFC3339
+    fn ton_to_rfc3339(t: Option<fuser::TimeOrNow>, fallback_iso: &str) -> String {
+        match t {
+            // If the enum explicitly requests "Now", use current time.
+            Some(fuser::TimeOrNow::Now) => chrono::Utc::now().to_rfc3339(),
+            // For any other variant present in the fuser version used, fall back to the provided fallback ISO string.
+            // This avoids depending on a specific variant name (like `Specific`) that may not exist in all versions.
+            Some(_) => fallback_iso.to_string(),
+            None => fallback_iso.to_string(),
         }
+    }
+    let new_atime = ton_to_rfc3339(_atime, &current_metadata.atime);
+    let new_mtime = ton_to_rfc3339(_mtime, &current_metadata.mtime);
+    let new_ctime = match _ctime {
+        Some(st) => {
+            let dt: chrono::DateTime<chrono::Utc> = st.into();
+            dt.to_rfc3339()
+        }
+        None => current_metadata.ctime.clone(),
+    };
+
+    let touch_req = WriteRequest {
+        offset: None,
+        path: path.clone(),
+        new_path: None,
+        size: current_metadata.size,
+        atime: new_atime,
+        mtime: new_mtime,
+        ctime: new_ctime,
+        crtime: current_metadata.crtime.clone(),
+        kind: current_metadata.kind,
+        ref_path: current_metadata.ref_path.clone(),
+        perm: current_metadata.perm.clone(),
+        mode: Mode::Write,
+        data: None,
+    };
+
+    match rt.block_on(async { self.client.write_file(&touch_req).await }) {
+        Ok(()) => self.get_current_attributes(ino, &path, reply),
+        Err(_) => reply.error(libc::EIO),
+    }
+    return;
+}
 
         // E) FLAGS - NON SUPPORTATO
         if flags.is_some() {
@@ -889,7 +925,7 @@ impl Filesystem for RemoteFileSystem {
                             Ok(metadata) => {
                                 // Usa metadati reali dal server
                                 let attr = attributes::from_metadata(new_inode, &metadata);
-                                let ttl = Duration::from_secs(300);
+                                let ttl = Duration::from_secs(1);
                                 reply.entry(&ttl, &attr, 0);
 
                                 log::debug!("✅ [MKNOD] Entry restituita per inode {}", new_inode);
@@ -902,7 +938,7 @@ impl Filesystem for RemoteFileSystem {
                                 // File creato ma metadati non disponibili - usa attributi base
                                 let effective_perms = mode & 0o777 & !(umask & 0o777);
                                 let attr = new_file_attr(new_inode, 0, effective_perms);
-                                let ttl = Duration::from_secs(300);
+                                let ttl = Duration::from_secs(1);
                                 reply.entry(&ttl, &attr, 0);
                             }
                         }
@@ -1045,7 +1081,7 @@ impl Filesystem for RemoteFileSystem {
                     Ok(metadata) => {
                         // Usa metadati reali dal server
                         let attr = attributes::from_metadata(new_inode, &metadata);
-                        let ttl = Duration::from_secs(300);
+                        let ttl = Duration::from_secs(1);
                         reply.entry(&ttl, &attr, 0);
 
                         log::debug!("✅ [MKDIR] Entry restituita per inode {}", new_inode);
@@ -1054,7 +1090,7 @@ impl Filesystem for RemoteFileSystem {
                         log::error!("❌ [MKDIR] Errore recupero metadati dopo creazione: {}", e);
                         // Directory creata ma metadati non disponibili - usa attributi base)
                         let attr = new_directory_attr(new_inode, effective_permissions);
-                        let ttl = Duration::from_secs(300);
+                        let ttl = Duration::from_secs(1);
                         reply.entry(&ttl, &attr, 0);
                     }
                 }
@@ -1488,7 +1524,7 @@ impl Filesystem for RemoteFileSystem {
                     Ok(metadata) => {
                         // Usa metadati reali dal server
                         let attr = attributes::from_metadata(new_inode, &metadata);
-                        let ttl = Duration::from_secs(300);
+                        let ttl = Duration::from_secs(1);
                         reply.entry(&ttl, &attr, 0);
 
                         debug_println!("✅ [SYMLINK] Entry restituita per inode {}", new_inode);
@@ -1910,7 +1946,7 @@ impl Filesystem for RemoteFileSystem {
 
                 // 11. RESTITUISCI ENTRY CON STESSO INODE
                 let attr = attributes::from_metadata(ino, &updated_metadata);
-                let ttl = Duration::from_secs(300);
+                let ttl = Duration::from_secs(1);
                 reply.entry(&ttl, &attr, 0);
 
                 log::debug!("✅ [LINK] Entry restituita per inode {} (hard link)", ino);
@@ -2119,7 +2155,7 @@ impl Filesystem for RemoteFileSystem {
         debug_println!("📂 [OPEN] PRIMA DI REPLY.OPENED");
 
         // 9. RESTITUISCI FILE HANDLE
-        reply.opened(fh, 0);
+        reply.opened(fh, FOPEN_DIRECT_IO);
 
         debug_println!("📂 [OPEN] COMPLETATO CON SUCCESSO - FH: {}", fh);
     }
@@ -3310,20 +3346,11 @@ impl Filesystem for RemoteFileSystem {
         // 7. VERIFICA PERMESSI RICHIESTI
         let mut access_denied = false;
 
-        if check_read && (effective_perms & 0o400) == 0 {
-            log::warn!("⚠️ [ACCESS] Permesso lettura negato per: {}", path);
-            access_denied = true;
-        }
-
-        if check_write && (effective_perms & 0o200) == 0 {
-            log::warn!("⚠️ [ACCESS] Permesso scrittura negato per: {}", path);
-            access_denied = true;
-        }
-
-        if check_exec && (effective_perms & 0o100) == 0 {
-            log::warn!("⚠️ [ACCESS] Permesso esecuzione negato per: {}", path);
-            access_denied = true;
-        }
+if check_read  && (effective_perms & 0o4) == 0 { reply.error(libc::EACCES); return; }
+if check_write && (effective_perms & 0o2) == 0 { reply.error(libc::EACCES); return; }
+if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Directory {
+    reply.error(libc::EACCES); return;
+}
 
         // 8. VERIFICA TIPO FILE PER ESECUZIONE
         if check_exec && metadata.kind == FileKind::Directory {
@@ -3475,7 +3502,7 @@ impl Filesystem for RemoteFileSystem {
                     Ok(metadata) => {
                         // Usa metadati reali dal server
                         let attr = attributes::from_metadata(new_inode, &metadata);
-                        let ttl = Duration::from_secs(300);
+                        let ttl = Duration::from_secs(1);
 
                         log::debug!(
                             "✅ [CREATE] File creato e aperto: path='{}', ino={}, fh={}",
@@ -3484,13 +3511,13 @@ impl Filesystem for RemoteFileSystem {
                             fh
                         );
 
-                        reply.created(&ttl, &attr, 0, fh, 0);
+                        reply.created(&ttl, &attr, 0, fh, FOPEN_DIRECT_IO);
                     }
                     Err(e) => {
                         log::error!("❌ [CREATE] Errore recupero metadati: {}", e);
                         // File creato ma usa attributi base
                         let attr = new_file_attr(new_inode, 0, effective_permissions);
-                        let ttl = Duration::from_secs(300);
+                        let ttl = Duration::from_secs(1);
                         reply.created(&ttl, &attr, 0, fh, 0);
                     }
                 }
