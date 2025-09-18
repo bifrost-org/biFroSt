@@ -4,18 +4,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub async fn run() {
-    let relative_config_path = Config::default_path();
+    let config_path = Config::default_path();
 
-    let absolute_config_path = if relative_config_path.is_relative() {
-        env::current_dir().unwrap().join(&relative_config_path)
-    } else {
-        relative_config_path.to_path_buf()
-    };
-
-    if relative_config_path.exists() {
+    if config_path.exists() {
         eprintln!(
             "\nConfiguration file already exists at `{}`",
-            absolute_config_path.display()
+            config_path.display()
         );
         eprintln!("Delete or rename it before creating a new one.");
         return;
@@ -24,9 +18,16 @@ pub async fn run() {
     println!("\nBifrost configuration setup:");
     println!("Press ENTER to use the default value (shown in brackets)\n");
 
+    let default_mount = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("bifrostFS");
+
     let server_url = prompt("Server URL", "https://bifrost.oberon-server.it");
     let port = prompt_parse::<u16>("Port", 443);
-    let mount_point = prompt_path("Mount point", "/home/oberon/bifrostFS");
+    let mount_point = prompt_path(
+        "Mount point",
+        default_mount.to_str().unwrap_or("/tmp/bifrostFS"),
+    );
     let timeout_secs = prompt_parse::<u64>("Timeout in seconds", 60);
 
     let config = Config {
@@ -41,7 +42,7 @@ pub async fn run() {
         Ok(_) => {
             println!(
                 "\nConfiguration file created at `{}`",
-                absolute_config_path.display()
+                config_path.display()
             );
         }
         Err(ConfigError::FileWrite(e)) => {

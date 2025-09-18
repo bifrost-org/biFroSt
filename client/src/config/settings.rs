@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Debug, thiserror::Error)]
@@ -45,18 +46,24 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn default_path() -> &'static Path {
-        Path::new("config.toml")
+    pub fn default_path() -> PathBuf {
+        // config file is saved in ~/.bifrost folder
+        let mut path = dirs::home_dir().expect("Cannot find home directory");
+        path.push(".bifrost");
+        fs::create_dir_all(&path).expect("Failed to create .bifrost directory");
+        path.push("config.toml");
+        path
     }
 
     // load configuration from file
     pub fn from_file() -> Result<Self, ConfigError> {
-        if !Self::default_path().exists() {
+        let config_path = Self::default_path();
+
+        if !config_path.exists() {
             return Err(ConfigError::NotFound);
         }
 
-        let content =
-            std::fs::read_to_string(Self::default_path()).map_err(|e| ConfigError::FileRead(e))?;
+        let content = std::fs::read_to_string(config_path).map_err(|e| ConfigError::FileRead(e))?;
 
         let config: Config =
             toml::from_str(&content).map_err(|e| ConfigError::Parse(e.to_string()))?;
