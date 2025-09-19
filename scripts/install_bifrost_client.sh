@@ -7,6 +7,9 @@ set -euo pipefail
 info() { echo -e "\033[1;34m[INFO]\033[0m $*"; }
 error() { echo -e "\033[1;31m[ERROR]\033[0m $*"; exit 1; }
 
+info "Starting biFrǫSt client installation..."
+echo
+
 # -----------------------------
 # Preliminary checks
 # -----------------------------
@@ -29,7 +32,6 @@ info "Installing system dependencies..."
 
 if command -v apt-get >/dev/null 2>&1; then
     info "Detected apt-based Linux (Debian/Ubuntu)..."
-    sudo apt-get update
     sudo apt-get install -y build-essential pkg-config libfuse3-dev
 elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
     PKG_CMD="$(command -v dnf >/dev/null 2>&1 && echo dnf || echo yum)"
