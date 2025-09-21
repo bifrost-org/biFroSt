@@ -82,7 +82,7 @@ DB_HOST=$(prompt "PostgreSQL host" "localhost")
 DB_PORT=$(prompt "PostgreSQL port" "5432")
 DB_NAME=$(prompt "Database name" "bifrost")
 DB_USER=$(prompt "Database user" "heimdallr")
-DB_PASSWORD=$(prompt "Database password" "changeMe") #FIXME:
+DB_PASSWORD=$(prompt "Database password" "")
 
 PORT=$(prompt "Application port" "3000")
 USERS_PATH=$(prompt "Users root path" "$HOME/bifrost-mount/")

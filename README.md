@@ -84,7 +84,9 @@ sudo mv target/release/bifrost /usr/local/bin/
 You can install the client by running the provided command:
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/bifrost-org/biFroSt/main/scripts/install_bifrost_server.sh | bash
+wget -q https://raw.githubusercontent.com/bifrost-org/biFroSt/main/scripts/install_bifrost_server.sh
+bash install_bifrost_server.sh
+rm install_bifrost_server.sh
 ```
 
 Alternatively, you can build the server from source:
@@ -103,6 +105,36 @@ node dist/server.js
 ```
 
 Or create a system service / daemon to run it in the background.
+
+### Database setup
+
+biFrǫSt requires a PostgreSQL database to store user informations. The installation script **does not create the database or tables** - this is the responsibility of the user.
+
+#### 1. Create a database
+
+Make sure you have a PostgreSQL database ready. For example:
+
+```bash
+createdb -h <DB_HOST> -p <DB_PORT> -U <DB_USER> <DB_NAME>
+```
+
+#### 2. Connect to the database and create the `user` table:
+
+A SQL schema file is provided as `schema.sql` in the repository. It contains the table structure required by the server:
+
+```bash
+psql -h <DB_HOST> -p <DB_PORT> -U <DB_USER> -d <DB_NAME> -c "
+CREATE TABLE IF NOT EXISTS \"user\" (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL,
+    api_key TEXT NOT NULL,
+    crypted_secret_key TEXT NOT NULL,
+    iv TEXT NOT NULL,
+    tag TEXT NOT NULL
+);"
+```
+
+> Make sure the PostgreSQL user exists and has privileges to create databases and tables. If you installed PostgreSQL from a package, the default user might be `postgres` with no password.
 
 ## Usage
 
