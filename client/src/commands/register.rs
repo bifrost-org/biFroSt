@@ -16,7 +16,6 @@ pub async fn run() {
         }
     };
 
-    // keys will be saved in ~/.bifrost folder
     let mut dir = dirs::home_dir().expect("Cannot find home directory");
     dir.push(".bifrost");
     fs::create_dir_all(&dir).expect("Failed to create .bifrost directory");

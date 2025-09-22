@@ -47,7 +47,6 @@ impl UserKeys {
         headers
     }
 
-    // remember timestamp and nonce
     pub fn build_hmac_message(
         &self,
         method: &str,

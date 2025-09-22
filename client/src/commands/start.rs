@@ -33,21 +33,20 @@ pub async fn run(enable_service: bool) {
 
     let user_keys = UserKeys::load_from_files().expect("User keys not found");
 
-    // FILESYSTEM AND MOUNT
     let filesystem = RemoteFileSystem::new(RemoteClient::new(&config, Some(user_keys)));
     println!("✅ Filesystem initialized");
 
     let options = [
         MountOption::RW,
         MountOption::FSName("bifrost".to_string()),
-        MountOption::DefaultPermissions,
+        MountOption::AllowOther,
+        MountOption::AutoUnmount,
     ];
 
     println!("🔧 Mounting filesystem...");
     println!("📋 To test it: ls {:?}", config.mount_point);
     println!("🛑 Ctrl+C to exit");
 
-    // ✅ Direct mound with spawn_blocking
     let mount_point_clone = config.mount_point.clone();
 
     let mount_task = tokio::task::spawn_blocking(move || {
@@ -55,7 +54,6 @@ pub async fn run(enable_service: bool) {
         mount2(filesystem, &mount_point_clone, &options)
     });
 
-    // ✅ WAIT RESULT
     match mount_task.await {
         Ok(Ok(())) => println!("✅ Mount ended"),
         Ok(Err(e)) => eprintln!("❌ Mount error: {}", e),
@@ -71,14 +69,12 @@ fn install_systemd_user_service(service_name: &str, exec: &std::path::Path) -> R
     let unit_path = format!("{}/{}.service", dir, service_name);
     let tmp_path = format!("{}.tmp", &unit_path);
 
-    // Ensure exec path is absolute
     let exec_path = exec
         .canonicalize()
         .unwrap_or_else(|_| exec.to_path_buf())
         .to_string_lossy()
         .into_owned();
 
-    // Compose a clean unit file. Do NOT daemonize in the ExecStart: systemd manages the process.
     let work_dir = exec
         .parent()
         .unwrap_or(std::path::Path::new("/"))
@@ -109,11 +105,9 @@ WantedBy=default.target
         work_dir = work_dir
     );
 
-    // Write atomically: tmp file then rename
     std::fs
         ::write(&tmp_path, content.as_bytes())
         .map_err(|e| format!("write temp unit failed {}: {}", tmp_path, e))?;
-    // set permissions to 0644
     let mut perms = std::fs
         ::metadata(&tmp_path)
         .map_err(|e| format!("stat tmp file failed: {}", e))?
@@ -131,7 +125,6 @@ WantedBy=default.target
         ::rename(&tmp_path, &unit_path)
         .map_err(|e| format!("rename unit failed {} -> {}: {}", tmp_path, unit_path, e))?;
 
-    // reload and enable using --user (no sudo)
     let status = std::process::Command
         ::new("systemctl")
         .arg("--user")
@@ -159,7 +152,6 @@ WantedBy=default.target
 fn prepare_mount_point(mount_point: &PathBuf) {
     println!("🔍 Preparing mount point: {:?}", mount_point);
 
-    // Extract parent directory and name of directory
     let parent_dir = mount_point.parent().unwrap_or(std::path::Path::new("/"));
     let dir_name = mount_point
         .file_name()
@@ -179,17 +171,18 @@ fn prepare_mount_point(mount_point: &PathBuf) {
     if mount_point_exists {
         println!("📁 Mount point found in parent directory");
 
-        // Unmount + remotion
-        println!("🔄 umount -l {:?}", mount_point);
-        let _ = std::process::Command::new("umount").arg(mount_point).output();
 
         println!("🗑️ rmdir {:?}", mount_point);
-        let _ = std::process::Command::new("rmdir").arg(mount_point).output();
+        let res = std::process::Command::new("rmdir").arg(mount_point).output();
+        println!("{:?}",res);
+        if res.is_err() {
+            eprintln!("❌ Error in removing existing mount point: {:?}", mount_point);
+            std::process::exit(1);
+        }
     } else {
         println!("📁 Mount point not found in parent directory");
     }
 
-    // Create directory mount
     println!("📁 Create directory mount: {:?}", mount_point);
     match std::fs::create_dir_all(mount_point) {
         Ok(_) => {

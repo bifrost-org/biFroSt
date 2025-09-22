@@ -45,29 +45,22 @@ pub fn new_directory_attr(ino: u64, permission_octal: u32) -> FileAttr {
         blksize: 4096,
     }
 }
-/// Converte permessi da formato stringa (simbolico o numerico) a u16
 fn parse_permissions(perm: &str) -> u16 {
-    // Se è già in formato ottale valido (3 cifre), convertilo
     if perm.len() == 3 && perm.chars().all(|c| c.is_ascii_digit() && c <= '7') {
         return u16::from_str_radix(perm, 8).unwrap_or(0o644);
     }
     
-    // Conversione da formato simbolico rwx a ottale
     if perm.len() == 9 && (perm.starts_with('r') || perm.starts_with('-')) {
         return symbolic_to_octal(perm);
     }
     
-    // Se è un numero decimale, convertilo in ottale
     if let Ok(decimal_perm) = perm.parse::<u32>() {
-        // Se è già in formato ottale (cifre <= 7), usalo direttamente
         if decimal_perm <= 777 && decimal_perm.to_string().chars().all(|c| c <= '7') {
             return decimal_perm as u16;
         }
-        // Altrimenti converte da decimale a ottale (interpretando il numero come ottale)
         return decimal_perm as u16;
     }
     
-    // Conversioni per formati comuni
     let octal_str = match perm {
         "rw-r--r--" => "644",
         "rwxr-xr-x" => "755", 
@@ -81,21 +74,17 @@ fn parse_permissions(perm: &str) -> u16 {
     u16::from_str_radix(octal_str, 8).unwrap_or(0o644)
 }
 
-/// Converte permessi simbolici (rwxrwxrwx) in u16 ottale
 fn symbolic_to_octal(symbolic: &str) -> u16 {
     let mut octal = 0u16;
     
-    // Owner (primi 3 caratteri)
     if symbolic.chars().nth(0) == Some('r') { octal += 0o400; }
     if symbolic.chars().nth(1) == Some('w') { octal += 0o200; }
     if symbolic.chars().nth(2) == Some('x') { octal += 0o100; }
     
-    // Group (caratteri 3-5)
     if symbolic.chars().nth(3) == Some('r') { octal += 0o040; }
     if symbolic.chars().nth(4) == Some('w') { octal += 0o020; }
     if symbolic.chars().nth(5) == Some('x') { octal += 0o010; }
     
-    // Other (caratteri 6-8)
     if symbolic.chars().nth(6) == Some('r') { octal += 0o004; }
     if symbolic.chars().nth(7) == Some('w') { octal += 0o002; }
     if symbolic.chars().nth(8) == Some('x') { octal += 0o001; }

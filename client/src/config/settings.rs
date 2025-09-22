@@ -55,7 +55,6 @@ impl Config {
         path
     }
 
-    // load configuration from file
     pub fn from_file() -> Result<Self, ConfigError> {
         let config_path = Self::default_path();
 
@@ -72,7 +71,6 @@ impl Config {
         Ok(config)
     }
 
-    // save actual configuration to file
     pub fn save_to_file(&self) -> Result<(), ConfigError> {
         let content =
             toml::to_string_pretty(self).map_err(|e| ConfigError::Serialize(e.to_string()))?;

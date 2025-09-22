@@ -8,16 +8,14 @@ use crate::util::date::format_datetime;
 use crate::util::fs::format_permissions;
 use crate::util::path::{get_file_name, get_parent_path};
 use std::time::Duration;
-use tokio::time::sleep;
 
 use moka::sync::Cache as MokaCache;
 
-const CONSISTENCY_DELAY_MS: u64 = 30;
+
 
 #[allow(unused_macros)]
 macro_rules! debug_println {
     ($($arg:tt)*) => {
-        //println!($($arg)*); // leave the comment to enable debug logs
     };
 }
 
@@ -143,7 +141,6 @@ impl RemoteClient {
         final_headers
     }
 
-    // Obtain metadata for a single file/directory
     pub async fn get_file_metadata(&self, path: &str) -> Result<MetaFile, ClientError> {
         if path == "/" {
             let now_iso = chrono::Utc::now().to_rfc3339();
@@ -189,7 +186,7 @@ impl RemoteClient {
                 return Ok(cached_response.clone());
             }
             None => {
-                debug_println!("Metadati requested from server for path: {}", path);
+                
             }
         }
 
@@ -208,14 +205,13 @@ impl RemoteClient {
             }
         };
 
-        // Manage HTTP errors
         if !response.status().is_success() {
             let status_code = response.status().as_u16();
             let message = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            debug_println!("{}",message);
+            
             return Err(match status_code {
                 404 => ClientError::NotFound {
                     path: path.to_string(),
@@ -252,21 +248,18 @@ impl RemoteClient {
         let url = self.build_url(&route_path);
 
         let mut headers;
-        // Note: offset and size should be always present
         if let Some(off) = offset {
             let range_value = if let Some(sz) = size {
                 format!("bytes={}-{}", off, off + sz - 1)
             } else {
-                // from the offset to the end of the file
                 format!("bytes={}-", off)
             };
             headers = self.get_headers("GET", &route_path, Some(&range_value), None);
             headers.insert("Range", range_value.parse().expect("Invalid Range header"));
-            debug_println!("🔍 [HEADERS] Range: {}", range_value);
+            
         } else {
             headers = self.get_headers("GET", &route_path, None, None);
         }
-        // without offset, the server should return the entire file
 
         let response = self
             .http_client
@@ -281,11 +274,10 @@ impl RemoteClient {
             })?;
 
         let status = response.status();
-        debug_println!("📖 [READ_FILE] Response received: status={}", status);
+        
 
         if response.status().is_success() {
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-            println!("📖 [READ_FILE] File content received: {:?} ", data);
             Ok(FileContent { data })
         } else {
             let message = response
@@ -301,7 +293,6 @@ impl RemoteClient {
         }
     }
 
-    // Write file (using multipart/form-data as required by the API)
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         
         self.cache.invalidate(&get_parent_path(&write_request.path));
@@ -381,11 +372,9 @@ impl RemoteClient {
                 }
             }
             Mode::Truncate => {
-                // Ignore content as per spec
                 if has_content {
-                    debug_println!("ℹ️ [WRITE_FILE] Content ignored in truncate");
+                    
                 }
-                // size = final requested size
             }
         }
 
@@ -395,7 +384,6 @@ impl RemoteClient {
                 if has_content {
                     write_request.data.as_ref().unwrap().len() as u64
                 } else {
-                    // metadata-only update: use declared size (already validated above)
                     write_request.size
                 }
             }
@@ -404,14 +392,13 @@ impl RemoteClient {
         let send_data: Vec<u8> = match write_request.kind {
             FileKind::Symlink | FileKind::Hardlink => {
                 if has_content {
-                    debug_println!("ℹ️ [WRITE_FILE] Content ignorato per link");
+                    
                 }
                 Vec::new()
             }
             _ => write_request.data.clone().unwrap_or_default(),
         };
 
-        // METADATA JSON
 
         let mut metadata_map = serde_json::Map::new();
         metadata_map.insert("size".to_string(), json!(effective_size));
@@ -466,7 +453,6 @@ impl RemoteClient {
             Some(vec![ExtraItem::Text(&metadata_str)])
         };
         let mut headers = self.get_headers("PUT", &route_path, None, extra_items);
-        // Headers - NOT include Content-Type (reqwest handles it automatically)
         headers.remove(reqwest::header::CONTENT_TYPE);
 
         let mut form = reqwest::multipart::Form::new().text("metadata", metadata_str.clone());
@@ -502,18 +488,17 @@ impl RemoteClient {
                 status_code, error_body
             );
 
-            // Debug dettagli della richiesta per 400 Bad Request
             if status_code == 400 || status_code == 404 {
-                debug_println!("Metadata JSON inviato:");
-                debug_println!("  {}", metadata_str);
+                
+                
 
                 if let Some(data) = &write_request.data {
-                    debug_println!("  💾 Data length: {} bytes", data.len());
+                    
                     if data.len() <= 100 {
-                        debug_println!("  💾 Data content: {:?}", String::from_utf8_lossy(data));
+                        
                     }
                 } else {
-                    debug_println!("  💾 Data: None");
+                    
                 }
             }
 
@@ -537,13 +522,11 @@ impl RemoteClient {
             });
         }
 
-                sleep(Duration::from_millis(30)).await;
 
 
         self.handle_empty_response(response).await
     }
 
-    // Create directory
     pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
         let route_path = self.build_path("/mkdir", Some(path));
         let url = self.build_url(&route_path);
@@ -559,7 +542,6 @@ impl RemoteClient {
         self.handle_empty_response(response).await
     }
 
-    // Delete file or directory
     pub async fn delete(&self, path: &str) -> Result<(), ClientError> {
         let route_path = self.build_path("/files", Some(path));
         let url = self.build_url(&route_path);
@@ -578,7 +560,6 @@ impl RemoteClient {
         self.handle_empty_response(response).await
     }
 
-    // user registration
     pub async fn user_registration(&self, username: String) -> Result<UserKeys, ClientError> {
         let route_path = self.build_path("/users", None);
         let url = self.build_url(&route_path);

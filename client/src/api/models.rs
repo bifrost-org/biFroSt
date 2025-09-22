@@ -143,7 +143,6 @@ pub struct CreateDirectoryRequest {
     pub permissions_octal: String,
 }
 
-// registration body
 #[derive(Serialize)]
 pub struct RegisterRequest {
     pub username: String,

@@ -1,4 +1,3 @@
-// Converts datetime ISO in server requested format
 pub fn format_datetime(iso_datetime: &str) -> String {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(iso_datetime) {
         dt.with_timezone(&chrono::Utc)

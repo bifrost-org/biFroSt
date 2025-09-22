@@ -40,12 +40,10 @@ fn main() {
 
 
 
-    // Se è start con detached, daemonizza PRIMA del runtime
     if let Commands::Start { detached: true, .. } = &cli.command {
         let cwd = std::env::current_dir().expect("cannot get current dir");
 
         let daemonize = Daemonize::new()
-            // Mantieni la working dir corrente per non rompere path relativi (config, ecc.)
             .working_directory(&cwd);
 
 
@@ -71,8 +69,6 @@ fn main() {
                 commands::register::run().await;
             }
             Commands::Start { detached, enable_autorun } => {
-                // Non fare più daemonize qui dentro.
-                // Aggiungi una stampa subito per verificare i log:
                 println!("entering start::run (detached={}) pid={}", detached, std::process::id());
                 commands::start::run(enable_autorun).await;
             }

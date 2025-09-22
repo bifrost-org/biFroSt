@@ -1,18 +1,14 @@
 use users::get_current_username;
 
-// Converts permissions from octal to string
 pub fn format_permissions(perm: &str) -> String {
-    // If it is already a valid octal (3 digits) than return it
     if perm.len() == 3 && perm.chars().all(|c| c.is_ascii_digit() && c <= '7') {
         return perm.to_string();
     }
 
-    // From 'rwx' format to octal string
     if perm.len() == 9 && (perm.starts_with('r') || perm.starts_with('-')) {
         return symbolic_to_octal(perm);
     }
 
-    // From decimal to octal string
     if let Ok(decimal_perm) = perm.parse::<u32>() {
         if decimal_perm <= 777 && decimal_perm.to_string().chars().all(|c| c <= '7') {
             return format!("{:03}", decimal_perm);
@@ -20,7 +16,6 @@ pub fn format_permissions(perm: &str) -> String {
         return format!("{:03o}", decimal_perm);
     }
 
-    // ?
     match perm {
         "rw-r--r--" => "644",
         "rwxr-xr-x" => "755",
@@ -33,11 +28,9 @@ pub fn format_permissions(perm: &str) -> String {
     .to_string()
 }
 
-// Converts from 'rwx' format to octal string
 pub fn symbolic_to_octal(symbolic: &str) -> String {
     let mut octal = 0;
 
-    // Owner
     if symbolic.chars().nth(0) == Some('r') {
         octal += 400;
     }
@@ -48,7 +41,6 @@ pub fn symbolic_to_octal(symbolic: &str) -> String {
         octal += 100;
     }
 
-    // Group
     if symbolic.chars().nth(3) == Some('r') {
         octal += 40;
     }
@@ -59,7 +51,6 @@ pub fn symbolic_to_octal(symbolic: &str) -> String {
         octal += 10;
     }
 
-    // Others
     if symbolic.chars().nth(6) == Some('r') {
         octal += 4;
     }
