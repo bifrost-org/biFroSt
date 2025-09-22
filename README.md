@@ -57,6 +57,10 @@ HMAC provides:
 
 ## Installation
 
+> **Note:** Some steps in the installation scripts require root privileges.  
+> This includes installing system dependencies (e.g., via `apt-get` or `dnf`) and setting up a system service/daemon with `systemd`.  
+> You may be prompted to enter your password via `sudo` during these steps.
+
 ### Client installation
 
 You can install the client by running the provided command:
@@ -105,6 +109,36 @@ node dist/server.js
 ```
 
 Or create a system service / daemon to run it in the background.
+
+#### Environment configuration
+
+Before running the server, you need to create an `.env` file inside the `dist/` directory.  
+This file defines the server configuration and database credentials.
+
+Create `dist/.env` with the following content, replacing the placeholders with your values:
+
+```bash
+# PostgreSQL database configuration
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=bifrost
+DB_USER=your_username
+DB_PASSWORD=your_password
+
+# Port the app listens on
+PORT=3000
+
+# MASTER_KEY is the symmetric key used by the server to encrypt and decrypt users' secret keys.
+# It must be exactly 32 bytes (64 hexadecimal characters) for AES-256-GCM encryption.
+# Generate it with: `openssl rand -hex 32`.
+# DO NOT change this key after generation, or previously encrypted data will become unrecoverable.
+MASTER_KEY=your_generated_master_key
+
+# Root path containing all users' directories
+USERS_PATH=/path/to/users
+```
+
+Make sure all paths and credentials exist and are accessible by the user running the server.
 
 ### Database setup
 
