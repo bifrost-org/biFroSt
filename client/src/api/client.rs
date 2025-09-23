@@ -40,7 +40,7 @@ struct PartialReadBuf {
 }
 
 const READ_ALIGN: u64 = 4096;
-const READ_PREFETCH: u64 = 512 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
+const READ_PREFETCH: u64 = 1024 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
 const MAX_PARTIAL_BYTES: u64 = 32 * 1024 * 1024; // oltre questo NON usiamo la struttura byte-per-byte
 
 fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
