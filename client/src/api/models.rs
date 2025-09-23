@@ -102,7 +102,7 @@ impl FileKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize,Eq, PartialEq)]
 pub enum Mode {
     #[serde(rename = "write")]
     Write,

@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::time::{ Duration, SystemTime };
 
-
+const STREAM_WRITE: usize = 4 * 1024 * 1024; //4MB
 pub struct RemoteFileSystem {
     inode_to_path: HashMap<u64, String>,
     path_to_inode: HashMap<String, u64>,
@@ -124,12 +124,14 @@ impl RemoteFileSystem {
         }
     }
 
-        fn remove_path_mapping(&mut self, path: &str) {
+    fn remove_path_mapping(&mut self, path: &str) {
         if let Some(inode) = self.path_to_inode.remove(path) {
             if let Some(current) = self.inode_to_path.get(&inode).cloned() {
                 if current == path {
-                    if let Some((alt_path, _)) =
-                        self.path_to_inode.iter().find(|(_, &ino)| ino == inode)
+                    if
+                        let Some((alt_path, _)) = self.path_to_inode
+                            .iter()
+                            .find(|(_, &ino)| ino == inode)
                     {
                         self.inode_to_path.insert(inode, alt_path.clone());
                     } else {
@@ -189,12 +191,8 @@ impl Filesystem for RemoteFileSystem {
             })
         {
             Ok(_) => {
-                
-
                 let _ = rt.block_on(async {
                     if let Ok(listing) = self.client.list_directory("/").await {
-                        
-
                         for entry in listing.files {
                             if !self.path_to_inode.contains_key(&entry.name) {
                                 let new_inode = self.generate_inode();
@@ -206,10 +204,7 @@ impl Filesystem for RemoteFileSystem {
 
                 Ok(())
             }
-            Err(e) => {
-                
-                Err(libc::EIO)
-            }
+            Err(e) => { Err(libc::EIO) }
         }
     }
 
@@ -224,8 +219,6 @@ impl Filesystem for RemoteFileSystem {
                 return;
             }
         };
-
-        
 
         if filename == "." {
             let parent_path = self.get_path(parent).cloned().unwrap_or("/".to_string());
@@ -360,8 +353,6 @@ impl Filesystem for RemoteFileSystem {
     fn forget(&mut self, _req: &Request<'_>, _ino: u64, _nlookup: u64) {}
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
-        
-
         if ino == 1 {
             let attr = attributes::new_directory_attr(1, 0o755);
             let ttl = Duration::from_secs(1);
@@ -370,10 +361,7 @@ impl Filesystem for RemoteFileSystem {
         }
 
         let path = match self.inode_to_path.get(&ino) {
-            Some(p) => {
-                
-                p.clone()
-            }
+            Some(p) => { p.clone() }
             None => {
                 reply.error(libc::ENOENT);
                 return;
@@ -392,17 +380,7 @@ impl Filesystem for RemoteFileSystem {
 
         match metadata_result {
             Ok(metadata) => {
-                
-                
-                
-                
-
                 let attr = attributes::from_metadata(ino, &metadata);
-
-                
-                
-                
-                
 
                 let ttl = Duration::from_secs(1);
                 reply.attr(&ttl, &attr);
@@ -411,7 +389,6 @@ impl Filesystem for RemoteFileSystem {
                 reply.error(libc::ENOENT);
             }
             Err(e) => {
-                
                 reply.error(libc::EIO);
             }
         }
@@ -434,17 +411,8 @@ impl Filesystem for RemoteFileSystem {
         flags: Option<u32>,
         reply: ReplyAttr
     ) {
-        
-
-        
-        
-
         if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
-            
-            
-
         }
-
 
         if ino == 1 {
             log::warn!("⚠️ [SETATTR] Tentativo di modificare directory root");
@@ -460,8 +428,6 @@ impl Filesystem for RemoteFileSystem {
                 return;
             }
         };
-
-        
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -487,27 +453,19 @@ impl Filesystem for RemoteFileSystem {
             }
         };
 
-        
-
-
         if let Some(new_size) = size {
-            
-
             match current_metadata.kind {
                 FileKind::Directory => {
                     log::warn!("⚠️ [SETATTR] Tentativo di truncate su directory: {}", path);
                     reply.error(libc::EISDIR);
                     return;
                 }
-                _ => {
-                }
+                _ => {}
             }
 
             let current_size = current_metadata.size;
-            
 
             if new_size == current_size {
-                
                 self.get_current_attributes(ino, &path, reply);
                 return;
             }
@@ -515,7 +473,6 @@ impl Filesystem for RemoteFileSystem {
             let now_iso = chrono::Utc::now().to_rfc3339();
 
             let operation_result = if new_size < current_size {
-                
                 rt.block_on(async { self.client.write_file(
                         &(WriteRequest {
                             offset: None,
@@ -534,7 +491,6 @@ impl Filesystem for RemoteFileSystem {
                         })
                     ).await })
             } else {
-                
                 let padding_size = new_size - current_size;
                 let padding_data = vec![0u8; padding_size as usize];
 
@@ -559,7 +515,6 @@ impl Filesystem for RemoteFileSystem {
 
             match operation_result {
                 Ok(()) => {
-                    
                     self.get_current_attributes(ino, &path, reply);
                 }
                 Err(e) => {
@@ -578,8 +533,6 @@ impl Filesystem for RemoteFileSystem {
         }
 
         if let Some(new_mode) = mode {
-            
-
             let new_permissions = format!("{:o}", new_mode & 0o777);
             let now_iso = chrono::Utc::now().to_rfc3339();
 
@@ -601,7 +554,6 @@ impl Filesystem for RemoteFileSystem {
 
             match rt.block_on(async { self.client.write_file(&chmod_request).await }) {
                 Ok(()) => {
-                    
                     self.get_current_attributes(ino, &path, reply);
                 }
                 Err(e) => {
@@ -622,46 +574,46 @@ impl Filesystem for RemoteFileSystem {
             reply.error(libc::EPERM);
             return;
         }
-if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
-    fn ton_to_rfc3339(t: Option<fuser::TimeOrNow>, fallback_iso: &str) -> String {
-        match t {
-            Some(fuser::TimeOrNow::Now) => chrono::Utc::now().to_rfc3339(),
-            Some(_) => fallback_iso.to_string(),
-            None => fallback_iso.to_string(),
-        }
-    }
-    let new_atime = ton_to_rfc3339(_atime, &current_metadata.atime);
-    let new_mtime = ton_to_rfc3339(_mtime, &current_metadata.mtime);
-    let new_ctime = match _ctime {
-        Some(st) => {
-            let dt: chrono::DateTime<chrono::Utc> = st.into();
-            dt.to_rfc3339()
-        }
-        None => current_metadata.ctime.clone(),
-    };
+        if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
+            fn ton_to_rfc3339(t: Option<fuser::TimeOrNow>, fallback_iso: &str) -> String {
+                match t {
+                    Some(fuser::TimeOrNow::Now) => chrono::Utc::now().to_rfc3339(),
+                    Some(_) => fallback_iso.to_string(),
+                    None => fallback_iso.to_string(),
+                }
+            }
+            let new_atime = ton_to_rfc3339(_atime, &current_metadata.atime);
+            let new_mtime = ton_to_rfc3339(_mtime, &current_metadata.mtime);
+            let new_ctime = match _ctime {
+                Some(st) => {
+                    let dt: chrono::DateTime<chrono::Utc> = st.into();
+                    dt.to_rfc3339()
+                }
+                None => current_metadata.ctime.clone(),
+            };
 
-    let touch_req = WriteRequest {
-        offset: None,
-        path: path.clone(),
-        new_path: None,
-        size: current_metadata.size,
-        atime: new_atime,
-        mtime: new_mtime,
-        ctime: new_ctime,
-        crtime: current_metadata.crtime.clone(),
-        kind: current_metadata.kind,
-        ref_path: current_metadata.ref_path.clone(),
-        perm: current_metadata.perm.clone(),
-        mode: Mode::Write,
-        data: None,
-    };
+            let touch_req = WriteRequest {
+                offset: None,
+                path: path.clone(),
+                new_path: None,
+                size: current_metadata.size,
+                atime: new_atime,
+                mtime: new_mtime,
+                ctime: new_ctime,
+                crtime: current_metadata.crtime.clone(),
+                kind: current_metadata.kind,
+                ref_path: current_metadata.ref_path.clone(),
+                perm: current_metadata.perm.clone(),
+                mode: Mode::Write,
+                data: None,
+            };
 
-    match rt.block_on(async { self.client.write_file(&touch_req).await }) {
-        Ok(()) => self.get_current_attributes(ino, &path, reply),
-        Err(_) => reply.error(libc::EIO),
-    }
-    return;
-}
+            match rt.block_on(async { self.client.write_file(&touch_req).await }) {
+                Ok(()) => self.get_current_attributes(ino, &path, reply),
+                Err(_) => reply.error(libc::EIO),
+            }
+            return;
+        }
 
         if flags.is_some() {
             log::warn!("⚠️ [SETATTR] Cambio flags non supportato");
@@ -669,13 +621,10 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             return;
         }
 
-        
         self.get_current_attributes(ino, &path, reply);
     }
 
     fn readlink(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyData) {
-        
-
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
@@ -700,7 +649,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 match (metadata.kind, &metadata.ref_path) {
                     (FileKind::Symlink, Some(target)) if !target.is_empty() => {
                         println!("🔗 [READLINK] Target : '{}'", target);
-
 
                         reply.data(target.as_bytes());
                     }
@@ -766,8 +714,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             format!("{}/{}", parent_path, filename)
         };
 
-        
-
         if self.path_to_inode.contains_key(&full_path) {
             log::warn!("⚠️ [MKNOD] File già esistente: {}", full_path);
             reply.error(libc::EEXIST);
@@ -778,7 +724,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
         match file_type {
             libc::S_IFREG => {
-                
                 let rt = match tokio::runtime::Handle::try_current() {
                     Ok(handle) => handle,
                     Err(_) => {
@@ -811,8 +756,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
                 match create_result {
                     Ok(()) => {
-                        
-
                         let new_inode = self.generate_inode();
                         self.register_inode(new_inode, full_path.clone());
 
@@ -825,14 +768,9 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                                 let attr = attributes::from_metadata(new_inode, &metadata);
                                 let ttl = Duration::from_secs(1);
                                 reply.entry(&ttl, &attr, 0);
-
-                                
                             }
                             Err(e) => {
-                                eprintln!(
-                                    "❌ [MKNOD] Errore recupero metadati dopo creazione: {}",
-                                    e
-                                );
+                                eprintln!("❌ [MKNOD] Errore recupero metadati dopo creazione: {}", e);
                                 let effective_perms = mode & 0o777 & !(umask & 0o777);
                                 let attr = new_file_attr(new_inode, 0, effective_perms);
                                 let ttl = Duration::from_secs(1);
@@ -889,9 +827,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         umask: u32,
         reply: ReplyEntry
     ) {
-        
-        
-
         let dirname = match name.to_str() {
             Some(s) => s,
             None => {
@@ -916,8 +851,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             format!("{}/{}", parent_path, dirname)
         };
 
-        
-
         if self.path_to_inode.contains_key(&full_path) {
             log::warn!("⚠️ [MKDIR] Directory già esistente: {}", full_path);
             reply.error(libc::EEXIST);
@@ -927,8 +860,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let effective_permissions = mode & 0o777 & !(umask & 0o777);
         let permissions_octal = format!("{:o}", effective_permissions);
 
-        
-
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
             Err(_) => {
@@ -936,13 +867,11 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 runtime.handle().clone()
             }
         };
-        
+
         let create_result = rt.block_on(async { self.client.create_directory(&full_path).await });
 
         match create_result {
             Ok(()) => {
-                
-
                 let new_inode = self.generate_inode();
                 self.register_inode(new_inode, full_path.clone());
 
@@ -955,8 +884,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                         let attr = attributes::from_metadata(new_inode, &metadata);
                         let ttl = Duration::from_secs(1);
                         reply.entry(&ttl, &attr, 0);
-
-                        
                     }
                     Err(e) => {
                         eprintln!("❌ [MKDIR] Errore recupero metadati dopo creazione: {}", e);
@@ -977,8 +904,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
     }
 
     fn unlink(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: fuser::ReplyEmpty) {
-        
-
         let filename = match name.to_str() {
             Some(s) => s,
             None => {
@@ -1003,8 +928,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             format!("{}/{}", parent_path, filename)
         };
 
-        
-
         let file_inode = match self.path_to_inode.get(&full_path) {
             Some(&inode) => inode,
             None => {
@@ -1019,9 +942,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                     }
                 };
                 match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
-                    Ok(_) => {
-                        
-                    }
+                    Ok(_) => {}
                     Err(ClientError::NotFound { .. }) => {
                         reply.error(libc::ENOENT);
                         return;
@@ -1075,12 +996,9 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
         match delete_result {
             Ok(()) => {
-                
-
                 self.remove_path_mapping(&full_path);
 
                 reply.ok();
-                
             }
             Err(ClientError::NotFound { .. }) => {
                 log::warn!("⚠️ [UNLINK] File già eliminato dal server: {}", full_path);
@@ -1095,8 +1013,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
     }
 
     fn rmdir(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: fuser::ReplyEmpty) {
-        
-
         let dirname = match name.to_str() {
             Some(s) => s,
             None => {
@@ -1127,8 +1043,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             format!("{}/{}", parent_path, dirname)
         };
 
-        
-
         if full_path == "/" {
             log::warn!("⚠️ [RMDIR] Tentativo di eliminare directory root");
             reply.error(libc::EBUSY);
@@ -1155,7 +1069,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                             reply.error(libc::ENOTDIR);
                             return;
                         }
-                        
                     }
                     Err(ClientError::NotFound { .. }) => {
                         reply.error(libc::ENOENT);
@@ -1218,9 +1131,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                     return;
                 }
             }
-            Err(ClientError::NotFound { .. }) => {
-                
-            }
+            Err(ClientError::NotFound { .. }) => {}
             Err(e) => {
                 eprintln!("❌ [RMDIR] Errore verifica directory vuota: {}", e);
                 reply.error(libc::EIO);
@@ -1232,15 +1143,11 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
         match delete_result {
             Ok(()) => {
-                
-
                 if dir_inode != 0 {
                     self.unregister_inode(dir_inode);
-                    
                 }
 
                 reply.ok();
-                
             }
             Err(ClientError::NotFound { .. }) => {
                 log::warn!("⚠️ [RMDIR] Directory già eliminata dal server: {}", full_path);
@@ -1265,7 +1172,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         reply: ReplyEntry
     ) {
         println!("🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}", parent, name, link);
-        
+
         let link_name = match name.to_str() {
             Some(s) => s,
             None => {
@@ -1293,7 +1200,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             }
         };
 
-    
         let symlink_path = if parent_path == "/" {
             format!("/{}", link_name)
         } else {
@@ -1301,7 +1207,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         println!("🔗 [SYMLINK] Target risolto: '{}'", symlink_path);
-
 
         println!("🔗 [SYMLINK] Creando symlink: '{}' → '{}'", link_name, target_path);
 
@@ -1320,7 +1225,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
         let now_iso = chrono::Utc::now().to_rfc3339();
 
-        
         let symlink_request = WriteRequest {
             offset: None,
             path: symlink_path.to_string().clone(),
@@ -1340,8 +1244,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
         match rt.block_on(async { self.client.write_file(&symlink_request).await }) {
             Ok(()) => {
-                    
-
                 let new_inode = self.generate_inode();
                 self.register_inode(new_inode, symlink_path.to_string().clone());
 
@@ -1354,8 +1256,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                         let attr = attributes::from_metadata(new_inode, &metadata);
                         let ttl = Duration::from_secs(1);
                         reply.entry(&ttl, &attr, 0);
-
-                        
                     }
                     Err(e) => {
                         reply.error(libc::EIO);
@@ -1383,8 +1283,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         flags: u32,
         reply: fuser::ReplyEmpty
     ) {
-        
-
         let old_filename = match name.to_str() {
             Some(s) => s,
             None => {
@@ -1410,10 +1308,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let old_parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!(
-                    "❌ [RENAME] Directory padre originale con inode {} non trovata",
-                    parent
-                );
+                eprintln!("❌ [RENAME] Directory padre originale con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1422,10 +1317,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let new_parent_path = match self.get_path(newparent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!(
-                    "❌ [RENAME] Nuova directory padre con inode {} non trovata",
-                    newparent
-                );
+                eprintln!("❌ [RENAME] Nuova directory padre con inode {} non trovata", newparent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1442,8 +1334,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         } else {
             format!("{}/{}", new_parent_path, new_filename)
         };
-
-        
 
         if old_path == "/" {
             log::warn!("⚠️ [RENAME] Tentativo di rinominare directory root");
@@ -1463,7 +1353,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         }
 
         if old_path == new_path {
-            
             reply.ok();
             return;
         }
@@ -1497,8 +1386,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 self.client.get_file_metadata(&new_path).await
             })
         {
-            
-
             if old_metadata.kind != new_metadata.kind {
                 if old_metadata.kind == FileKind::Directory {
                     reply.error(libc::ENOTDIR);
@@ -1550,8 +1437,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
         match rename_result {
             Ok(()) => {
-                
-
                 if file_inode != 0 {
                     self.inode_to_path.remove(&file_inode);
                     self.path_to_inode.remove(&old_path);
@@ -1564,12 +1449,9 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
                     self.inode_to_path.insert(file_inode, new_path.clone());
                     self.path_to_inode.insert(new_path.clone(), file_inode);
-
-                    
                 }
 
                 reply.ok();
-                
             }
             Err(ClientError::NotFound { .. }) => {
                 eprintln!("❌ [RENAME] File originale non trovato sul server: {}", old_path);
@@ -1619,7 +1501,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             }
         };
 
-        println!("Parent path: {}, Link name: {}, Source path: {:?}", parent_path, link_name, source_path);
+        println!(
+            "Parent path: {}, Link name: {}, Source path: {:?}",
+            parent_path,
+            link_name,
+            source_path
+        );
 
         let link_path = if parent_path == "/" {
             format!("/{}", link_name)
@@ -1627,7 +1514,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             format!("{}/{}", parent_path, link_name)
         };
         println!("Richiesta con {}", link_path);
-        
 
         if self.path_to_inode.contains_key(&link_path) {
             log::warn!("⚠️ [LINK] Hard link già esistente: {}", link_path);
@@ -1660,9 +1546,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         match source_metadata.kind {
-            FileKind::RegularFile => {
-                
-            }
+            FileKind::RegularFile => {}
             FileKind::Directory => {
                 log::warn!("⚠️ [LINK] Impossibile creare hard link su directory: {}", source_path);
                 reply.error(libc::EPERM);
@@ -1703,11 +1587,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
         match rt.block_on(async { self.client.write_file(&link_request).await }) {
             Ok(()) => {
-                
-
                 self.path_to_inode.insert(link_path.clone(), ino); // ✅ Aggiungi nuovo path -> inode
-
-                
 
                 let updated_metadata = match
                     rt.block_on(async { self.client.get_file_metadata(&link_path).await })
@@ -1722,14 +1602,9 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 let attr = attributes::from_metadata(ino, &updated_metadata);
                 let ttl = Duration::from_secs(1);
                 reply.entry(&ttl, &attr, 0);
-
-                
             }
             Err(ClientError::NotFound { .. }) => {
-                eprintln!(
-                    "❌ [LINK] File sorgente non trovato durante creazione: {}",
-                    source_path
-                );
+                eprintln!("❌ [LINK] File sorgente non trovato durante creazione: {}", source_path);
                 reply.error(libc::ENOENT);
             }
             Err(ClientError::PermissionDenied(_)) => {
@@ -1744,13 +1619,8 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
     }
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-        
-
         let path = match self.inode_to_path.get(&ino) {
-            Some(p) => {
-                
-                p.clone()
-            }
+            Some(p) => { p.clone() }
             None => {
                 eprintln!("❌ [OPEN] INODE {} NON TROVATO", ino);
                 eprintln!("❌ [OPEN] Inode {} non trovato", ino);
@@ -1759,36 +1629,22 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             }
         };
 
-        
-
         let rt = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                
-                handle
-            }
+            Ok(handle) => { handle }
             Err(_) => {
-                
                 let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
                 runtime.handle().clone()
             }
         };
 
-        
-
         let metadata_result = rt.block_on(async {
-            
             let result = self.client.get_file_metadata(&path).await;
-            
+
             result
         });
 
-        
-
         let metadata = match metadata_result {
-            Ok(metadata) => {
-                
-                metadata
-            }
+            Ok(metadata) => { metadata }
             Err(ClientError::NotFound { .. }) => {
                 eprintln!("❌ [OPEN] FILE NON TROVATO: {}", path);
                 reply.error(libc::ENOENT);
@@ -1801,16 +1657,9 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             }
         };
 
-
-        
-
         match metadata.kind {
-            FileKind::RegularFile => {
-                
-            }
-            FileKind::Symlink => {
-                
-            }
+            FileKind::RegularFile => {}
+            FileKind::Symlink => {}
             FileKind::Directory => {
                 eprintln!("❌ [OPEN] È una directory");
                 reply.error(libc::EISDIR);
@@ -1823,65 +1672,48 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             }
         }
 
-        
-
         let access_mode = flags & libc::O_ACCMODE;
         let open_flags = flags & !libc::O_ACCMODE;
 
-        
-        
-
         match access_mode {
-            libc::O_RDONLY => {  },
-            libc::O_WRONLY => {},
-            libc::O_RDWR => {},
-            _ => {},
+            libc::O_RDONLY => {}
+            libc::O_WRONLY => {}
+            libc::O_RDWR => {}
+            _ => {}
         }
 
         if (open_flags & libc::O_APPEND) != 0 {
-            
         }
         if (open_flags & libc::O_CREAT) != 0 {
-            
         }
         if (open_flags & libc::O_TRUNC) != 0 {
-            
         }
 
-        
-
         let perms = parse_permissions(&metadata.perm);
-        
 
         let effective_perms = perms.owner; // Assumiamo owner per semplicità
 
         match access_mode {
             libc::O_RDONLY => {
-                
                 if (effective_perms & 0o4) == 0 {
                     eprintln!("❌ [OPEN] Permesso di lettura negato");
                     reply.error(libc::EACCES);
                     return;
                 }
-                
             }
             libc::O_WRONLY => {
-                
                 if (effective_perms & 0o2) == 0 {
                     eprintln!("❌ [OPEN] Permesso di scrittura negato");
                     reply.error(libc::EACCES);
                     return;
                 }
-                
             }
             libc::O_RDWR => {
-                
                 if (effective_perms & 0o6) != 0o6 {
                     eprintln!("❌ [OPEN] Permessi lettura/scrittura insufficienti");
                     reply.error(libc::EACCES);
                     return;
                 }
-                
             }
             _ => {
                 eprintln!("❌ [OPEN] Modalità di accesso non valida: {:#x}", access_mode);
@@ -1890,12 +1722,8 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             }
         }
 
-        
-
         let fh = self.next_fh;
         self.next_fh += 1;
-
-        
 
         self.open_files.insert(fh, OpenFile {
             path: path.clone(),
@@ -1904,17 +1732,10 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             buffer_dirty: false,
         });
 
-        
-
         if (open_flags & libc::O_TRUNC) != 0 && access_mode != libc::O_RDONLY {
-            
         }
 
-        
-
         reply.opened(fh, FOPEN_DIRECT_IO);
-
-        
     }
 
     fn read(
@@ -1928,8 +1749,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         lock_owner: Option<u64>,
         reply: ReplyData
     ) {
-        
-
         if offset < 0 {
             eprintln!("❌ [READ] Offset negativo: {}", offset);
             reply.error(libc::EINVAL);
@@ -1937,7 +1756,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         }
 
         if size == 0 {
-            
             reply.data(&[]);
             return;
         }
@@ -1955,7 +1773,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         let path = open_file.path.clone();
-        
 
         let access_mode = open_file.flags & libc::O_ACCMODE;
         if access_mode == libc::O_WRONLY {
@@ -1986,9 +1803,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         match metadata.kind {
-            FileKind::RegularFile | FileKind::Symlink => {
-                
-            }
+            FileKind::RegularFile | FileKind::Symlink => {}
             FileKind::Directory => {
                 log::warn!("⚠️ [READ] Tentativo di read su directory: {}", path);
                 reply.error(libc::EISDIR);
@@ -2004,7 +1819,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let file_size = metadata.size;
 
         if offset_u64 >= file_size {
-            
             reply.data(&[]);
             return;
         }
@@ -2012,10 +1826,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let bytes_available = file_size - offset_u64;
         let bytes_to_read = std::cmp::min(size_usize as u64, bytes_available);
 
-        
-
         if bytes_to_read == 0 {
-            
             reply.data(&[]);
             return;
         }
@@ -2036,10 +1847,8 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                     );
                     reply.data(&data[..bytes_to_read as usize]);
                 } else if data.is_empty() && bytes_to_read > 0 {
-                    
                     reply.data(&[]);
                 } else {
-                    
                     reply.data(&data);
                 }
             }
@@ -2069,11 +1878,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         lock_owner: Option<u64>,
         reply: fuser::ReplyWrite
     ) {
-        
-        
-
-        
-
         if offset < 0 {
             eprintln!("❌ [WRITE] Offset negativo: {}", offset);
             reply.error(libc::EINVAL);
@@ -2081,7 +1885,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         }
 
         if data.is_empty() {
-            
             reply.written(0);
             return;
         }
@@ -2100,7 +1903,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
 
         let path = open_file.path.clone();
         let open_flags = open_file.flags;
-        
 
         let access_mode = open_flags & libc::O_ACCMODE;
         if access_mode == libc::O_RDONLY {
@@ -2132,9 +1934,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         match metadata.kind {
-            FileKind::RegularFile | FileKind::Symlink => {
-                
-            }
+            FileKind::RegularFile | FileKind::Symlink => {}
             FileKind::Directory => {
                 log::warn!("⚠️ [WRITE] Tentativo di write su directory: {}", path);
                 reply.error(libc::EISDIR);
@@ -2150,47 +1950,37 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let current_file_size = metadata.size;
 
         let effective_offset = if (open_flags & libc::O_APPEND) != 0 {
-            
             current_file_size // Scrivi sempre alla fine del file
         } else {
             offset_u64
         };
 
-        
-
         let file1 = self.open_files.get_mut(&fh).unwrap().write_buffer.len();
-        let (write_mode, final_data) = if effective_offset == current_file_size+file1 as u64 {
-            
-            
-            
+        let (write_mode, final_data) = if effective_offset == current_file_size + (file1 as u64) {
             (Mode::Append, data.to_vec())
         } else if effective_offset == 0 && (data_len as u64) >= current_file_size {
-            
-            
             (Mode::Write, data.to_vec())
         } else {
             println!("🔧 [WRITE] === MODALITÀ WRITE-AT ===");
-            
 
-                    (Mode::Write, data.to_vec())
-
+            (Mode::Write, data.to_vec())
         };
-        
-        match write_mode {
-            Mode::Append => {
-                
+
+        let open_file = self.open_files.get_mut(&fh);
+        let file = open_file.unwrap();
+
+        if write_mode == Mode::Append && file.write_buffer.len() < STREAM_WRITE {
                 let open_file = self.open_files.get_mut(&fh);
                 if let Some(file) = open_file {
                     file.write_buffer.extend_from_slice(&final_data);
-                    
+
                     file.buffer_dirty = true; // ✅ Segna buffer come sporco
                 }
                 reply.written(final_data.len() as u32);
                 return;
-            }
-            _ => {
-                
-                println!("SBUFFERIZAZZIONE");
+        }
+
+
 
                 let now_iso1 = chrono::Utc::now().to_rfc3339();
 
@@ -2204,38 +1994,36 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 };
 
                 if !file.write_buffer.is_empty() {
+                    let write_request1 = WriteRequest {
+                        offset: None, // ✅ SEMPRE None - usa Mode::Write per write-at
+                        path: path.clone(),
+                        new_path: None,
+                        size: file.write_buffer.len() as u64, // ✅ Dimensione dei dati finali
+                        atime: metadata.atime.clone(),
+                        mtime: now_iso1.clone(),
+                        ctime: now_iso1,
+                        crtime: metadata.crtime.clone(),
+                        kind: metadata.kind.clone(),
+                        ref_path: metadata.ref_path.clone(),
+                        perm: metadata.perm.clone(),
+                        mode: Mode::Append, // ✅ Mode determinato sopra
+                        data: Some(file.write_buffer.clone()), // ✅ Dati finali (completi per write-at)
+                    };
 
+                    let write_result1 = rt.block_on(async {
+                        self.client.write_file(&write_request1).await
+                    });
 
-                let write_request1 = WriteRequest {
-                    offset: None, // ✅ SEMPRE None - usa Mode::Write per write-at
-                    path: path.clone(),
-                    new_path: None,
-                    size: file.write_buffer.len() as u64, // ✅ Dimensione dei dati finali
-                    atime: metadata.atime.clone(),
-                    mtime: now_iso1.clone(),
-                    ctime: now_iso1,
-                    crtime: metadata.crtime.clone(),
-                    kind: metadata.kind.clone(),
-                    ref_path: metadata.ref_path.clone(),
-                    perm: metadata.perm.clone(),
-                    mode: Mode::Append, // ✅ Mode determinato sopra
-                    data: Some(file.write_buffer.clone()), // ✅ Dati finali (completi per write-at)
-                };
+                    if let Err(e) = write_result1 {
+                        eprintln!("❌ [WRITE] Errore scrittura file: {}", e);
+                        reply.error(libc::EIO);
+                        return;
+                    }
 
-                let write_result1 = rt.block_on(async {
-                    self.client.write_file(&write_request1).await
-                });
-
-                if let Err(e) = write_result1 {
-                   eprintln!("❌ [WRITE] Errore scrittura file: {}", e);
-                    reply.error(libc::EIO);
-                    return;
+                    file.buffer_dirty = false;
+                    file.write_buffer.clear(); // ✅ Pulisci buffer dopo scrittura
                 }
 
-                file.buffer_dirty = false;
-                file.write_buffer.clear(); // ✅ Pulisci buffer dopo scrittura
-            }}
-        }
 
         let now_iso = chrono::Utc::now().to_rfc3339();
         let write_request = WriteRequest {
@@ -2263,19 +2051,14 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         match write_result {
             Ok(()) => {
                 match write_request.mode {
-                    Mode::Append => {  },
+                    Mode::Append => {}
                     Mode::Write => {
                         if effective_offset != 0 || (data_len as u64) < current_file_size {
-                            
                         } else {
-                            
                         }
                     }
-                    _ => {  },
+                    _ => {}
                 }
-
-                
-                
 
                 reply.written(data_len as u32);
             }
@@ -2327,7 +2110,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         if open_file.write_buffer.is_empty() {
-            
             reply.ok();
             return;
         }
@@ -2408,8 +2190,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         flush: bool,
         reply: fuser::ReplyEmpty
     ) {
-        
-
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
             None => {
@@ -2420,17 +2200,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         let path = open_file.path.clone();
-        
 
         if flush {
-            
         }
 
         if let Some(removed_file) = self.open_files.remove(&fh) {
-            
         }
-
-        
 
         reply.ok();
     }
@@ -2443,8 +2218,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         datasync: bool,
         reply: fuser::ReplyEmpty
     ) {
-        
-
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
             None => {
@@ -2455,7 +2228,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         let path = open_file.path.clone();
-        
 
         let access_mode = open_file.flags & libc::O_ACCMODE;
         if access_mode == libc::O_RDONLY {
@@ -2463,8 +2235,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             reply.error(libc::EBADF);
             return;
         }
-
-        
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -2475,7 +2245,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
         match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(_) => {
-                
                 reply.ok();
             }
             Err(ClientError::NotFound { .. }) => {
@@ -2490,8 +2259,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
-        
-
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
@@ -2500,8 +2267,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 return;
             }
         };
-
-        
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -2530,12 +2295,8 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             return;
         }
 
-        
-
         match rt.block_on(async { self.client.list_directory(&path).await }) {
-            Ok(_) => {
-                
-            }
+            Ok(_) => {}
             Err(ClientError::PermissionDenied(_)) => {
                 eprintln!("❌ [OPENDIR] Permesso di lettura negato: {}", path);
                 reply.error(libc::EACCES);
@@ -2556,8 +2317,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             flags, // ← Includi i flags
         });
 
-        
-
         reply.opened(dh, 0);
     }
 
@@ -2569,8 +2328,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         offset: i64,
         mut reply: ReplyDirectory
     ) {
-        
-
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
             None => {
@@ -2581,7 +2338,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         let path = open_dir.path.clone();
-        
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -2657,16 +2413,9 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             entries.push((entry_ino, file_type, file_entry.name));
         }
 
-        
-
-        let start_index = if offset == 0 {
-            0
-        } else {
-            offset as usize
-        };
+        let start_index = if offset == 0 { 0 } else { offset as usize };
 
         if start_index >= entries.len() {
-            
             reply.ok();
             return;
         }
@@ -2674,8 +2423,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let mut current_offset = start_index;
         for (entry_ino, file_type, name) in entries.into_iter().skip(start_index) {
             current_offset += 1;
-
-            
 
             let buffer_full = reply.add(
                 entry_ino, // inode
@@ -2685,12 +2432,9 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             );
 
             if buffer_full {
-                
                 break;
             }
         }
-
-        
 
         reply.ok();
     }
@@ -2703,8 +2447,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         flags: i32,
         reply: fuser::ReplyEmpty
     ) {
-        
-
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
             None => {
@@ -2715,15 +2457,9 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         let path = open_dir.path.clone();
-        
 
         if let Some(removed_dir) = self.open_dirs.remove(&fh) {
-            
         }
-
-        
-
-        
 
         reply.ok();
     }
@@ -2736,8 +2472,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         datasync: bool,
         reply: fuser::ReplyEmpty
     ) {
-        
-
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
             None => {
@@ -2748,7 +2482,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         let path = open_dir.path.clone();
-        
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -2777,12 +2510,8 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             return;
         }
 
-        
-
-
         match rt.block_on(async { self.client.list_directory(&path).await }) {
             Ok(_) => {
-                
                 reply.ok();
             }
             Err(ClientError::NotFound { .. }) => {
@@ -2829,7 +2558,6 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         position: u32,
         reply: fuser::ReplyEmpty
     ) {
-        
         reply.error(libc::ENOSYS);
     }
 
@@ -2841,12 +2569,10 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         size: u32,
         reply: fuser::ReplyXattr
     ) {
-        
         reply.error(libc::ENOSYS);
     }
 
     fn listxattr(&mut self, _req: &Request<'_>, ino: u64, size: u32, reply: fuser::ReplyXattr) {
-        
         reply.error(libc::ENOSYS);
     }
 
@@ -2857,13 +2583,10 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         name: &OsStr,
         reply: fuser::ReplyEmpty
     ) {
-        
         reply.error(libc::ENOSYS);
     }
 
     fn access(&mut self, _req: &Request<'_>, ino: u64, mask: i32, reply: fuser::ReplyEmpty) {
-        
-
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
@@ -2873,15 +2596,11 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             }
         };
 
-        
-
         let check_exist =
             mask == libc::F_OK || (mask & (libc::R_OK | libc::W_OK | libc::X_OK)) != 0;
         let check_read = (mask & libc::R_OK) != 0;
         let check_write = (mask & libc::W_OK) != 0;
         let check_exec = (mask & libc::X_OK) != 0;
-
-        
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -2910,27 +2629,30 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         };
 
         if mask == libc::F_OK {
-            
             reply.ok();
             return;
         }
 
         let perms = parse_permissions(&metadata.perm);
 
-        
-
         let effective_perms = perms.owner; // Assumi che siamo sempre owner
 
         let mut access_denied = false;
 
-if check_read  && (effective_perms & 0o4) == 0 { reply.error(libc::EACCES); return; }
-if check_write && (effective_perms & 0o2) == 0 { reply.error(libc::EACCES); return; }
-if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Directory {
-    reply.error(libc::EACCES); return;
-}
+        if check_read && (effective_perms & 0o4) == 0 {
+            reply.error(libc::EACCES);
+            return;
+        }
+        if check_write && (effective_perms & 0o2) == 0 {
+            reply.error(libc::EACCES);
+            return;
+        }
+        if check_exec && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Directory {
+            reply.error(libc::EACCES);
+            return;
+        }
 
         if check_exec && metadata.kind == FileKind::Directory {
-            
         } else if check_exec && metadata.kind != FileKind::RegularFile {
             log::warn!("⚠️ [ACCESS] Tipo file non eseguibile: {:?}", metadata.kind);
             access_denied = true;
@@ -2939,7 +2661,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         if access_denied {
             reply.error(libc::EACCES);
         } else {
-            
             reply.ok();
         }
     }
@@ -2954,9 +2675,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         flags: i32,
         reply: fuser::ReplyCreate
     ) {
-        
-        
-
         let filename = match name.to_str() {
             Some(s) => s,
             None => {
@@ -2981,8 +2699,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
             format!("{}/{}", parent_path, filename)
         };
 
-        
-
         if self.path_to_inode.contains_key(&full_path) {
             log::warn!("⚠️ [CREATE] File già esistente: {}", full_path);
             reply.error(libc::EEXIST);
@@ -2994,8 +2710,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
 
         let access_mode = flags & libc::O_ACCMODE;
         let open_flags = flags & !libc::O_ACCMODE;
-
-        
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -3023,13 +2737,10 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         };
 
         if (open_flags & libc::O_TRUNC) != 0 {
-            
         }
 
         match rt.block_on(async { self.client.write_file(&create_request).await }) {
             Ok(()) => {
-                
-
                 let new_inode = self.generate_inode();
                 self.register_inode(new_inode, full_path.clone());
 
@@ -3051,8 +2762,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
                     Ok(metadata) => {
                         let attr = attributes::from_metadata(new_inode, &metadata);
                         let ttl = Duration::from_secs(1);
-
-                        
 
                         reply.created(&ttl, &attr, 0, fh, FOPEN_DIRECT_IO);
                     }
@@ -3086,8 +2795,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         pid: u32,
         reply: fuser::ReplyLock
     ) {
-        
-
         if !self.open_files.contains_key(&fh) {
             reply.error(libc::EBADF);
             return;
@@ -3097,7 +2804,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
             for existing_lock in locks {
                 if ranges_overlap(start, end, existing_lock.start, existing_lock.end) {
                     if locks_conflict(typ, existing_lock.typ) {
-                        
                         reply.locked(
                             existing_lock.start,
                             existing_lock.end,
@@ -3110,7 +2816,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
             }
         }
 
-        
         reply.locked(0, 0, libc::F_UNLCK, 0);
     }
 
@@ -3127,8 +2832,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         sleep: bool,
         reply: fuser::ReplyEmpty
     ) {
-        
-
         if !self.open_files.contains_key(&fh) {
             reply.error(libc::EBADF);
             return;
@@ -3144,7 +2847,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
                         )
                     });
                 }
-                
+
                 reply.ok();
             }
             libc::F_RDLCK | libc::F_WRLCK => {
@@ -3179,7 +2882,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
 
                 self.file_locks.entry(ino).or_insert_with(Vec::new).push(new_lock);
 
-                
                 reply.ok();
             }
             _ => {
@@ -3196,8 +2898,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         idx: u64,
         reply: fuser::ReplyBmap
     ) {
-        
-
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
@@ -3238,14 +2938,11 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let blocks_in_file = (file_size + (blocksize as u64) - 1) / (blocksize as u64);
 
         if idx >= blocks_in_file {
-            
             reply.error(libc::ENXIO);
             return;
         }
 
         let simulated_physical_block = ino * 1000 + idx;
-
-        
 
         reply.bmap(simulated_physical_block);
     }
@@ -3261,7 +2958,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         out_size: u32,
         reply: fuser::ReplyIoctl
     ) {
-        
         reply.error(libc::ENOSYS);
     }
 
@@ -3275,7 +2971,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         mode: i32,
         reply: fuser::ReplyEmpty
     ) {
-        
         reply.error(libc::ENOSYS);
     }
 
@@ -3288,7 +2983,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         whence: i32,
         reply: fuser::ReplyLseek
     ) {
-        
         reply.error(libc::ENOSYS);
     }
 
@@ -3305,8 +2999,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         flags: u32,
         reply: fuser::ReplyWrite
     ) {
-        
-
         if offset_in < 0 || offset_out < 0 {
             eprintln!("❌ [COPY_FILE_RANGE] Offset negativi non supportati");
             reply.error(libc::EINVAL);
@@ -3314,7 +3006,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         }
 
         if len == 0 {
-            
             reply.written(0);
             return;
         }
@@ -3382,7 +3073,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let bytes_to_copy = std::cmp::min(len, bytes_read);
 
         if bytes_to_copy == 0 {
-            
             reply.written(0);
             return;
         }
@@ -3417,7 +3107,6 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
 
         match rt.block_on(async { self.client.write_file(&write_request).await }) {
             Ok(()) => {
-                
                 reply.written(bytes_to_copy as u32);
             }
             Err(e) => {

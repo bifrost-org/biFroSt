@@ -39,7 +39,6 @@ pub async fn run(enable_service: bool) {
     let options = [
         MountOption::RW,
         MountOption::FSName("bifrost".to_string()),
-        MountOption::AllowOther,
         MountOption::AutoUnmount,
     ];
 
