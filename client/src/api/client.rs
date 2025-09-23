@@ -40,7 +40,7 @@ struct PartialReadBuf {
 }
 
 const READ_ALIGN: u64 = 4096;
-const READ_PREFETCH: u64 = 1024 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
+const READ_PREFETCH: u64 = 512 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
 const MAX_PARTIAL_BYTES: u64 = 32 * 1024 * 1024; // oltre questo NON usiamo la struttura byte-per-byte
 
 fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
@@ -271,12 +271,7 @@ pub async fn read_file(
                 self.read_buf.insert(path.to_string(), empty.clone());
                 return Ok(FileContent { data: Vec::new() });
             }
-            if file_size > MAX_PARTIAL_BYTES {
-                // fallback semplice: leggi direttamente solo il pezzo richiesto (niente struttura enorme)
-                let span = want.min(file_size.saturating_sub(off));
-                let chunk = self.http_read_range(path, off, span).await?;
-                return Ok(FileContent { data: chunk });
-            }
+
             let new_buf = PartialReadBuf {
                 size: file_size,
                 data: vec![None; file_size as usize],
