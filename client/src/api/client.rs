@@ -258,53 +258,29 @@ pub async fn read_file(
 
     // 1) Prova a servire dal buffer del path
     if let Some(buf) = self.read_buf.get(path) {
+        println!("🎯 [BUFFER_FOUND] base={}, len={}", buf.base, buf.data.len());
         if off >= buf.base {
             let rel = off - buf.base;
             let have = buf.data.len() as u64;
+            println!("✅ [BUFFER_CHECK] rel={}, have={}", rel, have);
             if rel < have {
                 // Se il buffer copre già tutto ciò che serve, servi subito
                 if have - rel >= want {
+                    println!("🚀 [BUFFER_HIT] servendo dal buffer");
                     let s = rel as usize;
                     let e = s + want as usize;
                     return Ok(FileContent { data: buf.data[s..e].to_vec() });
                 }
-                // PRIMA di estendere, verifica la dimensione del file
-                let metadata = self.get_file_metadata(path).await?;
-                let file_size = metadata.size;
-                
-                let fetch_from = buf.base + have;
-                if fetch_from >= file_size {
-                    // Il buffer arriva già alla fine del file
-                    let s = rel as usize;
-                    let e = (s + want as usize).min(buf.data.len());
-                    return Ok(FileContent { data: buf.data[s..e].to_vec() });
-                }
-                
-                // Estendi solo fino alla fine del file
-                let remaining_in_file = file_size - fetch_from;
-                let need_more = off + want - (buf.base + have);
-                let fetch_len = need_more.max(READ_PREFETCH).min(remaining_in_file);
-                
-                if fetch_len == 0 {
-                    // Non c'è nient'altro da leggere
-                    let s = rel as usize;
-                    let e = (s + want as usize).min(buf.data.len());
-                    return Ok(FileContent { data: buf.data[s..e].to_vec() });
-                }
-                
-                let more = self.http_read_range(path, fetch_from, fetch_len).await?;
-                // Append e aggiorna buffer
-                let mut combined = buf.data.clone();
-                combined.extend_from_slice(&more);
-                let new_buf = ReadBuf { base: buf.base, data: combined };
-                self.read_buf.insert(path.to_string(), new_buf.clone());
-
-                let rel2 = off - new_buf.base;
-                let s = rel2 as usize;
-                let e = (s + want as usize).min(new_buf.data.len());
-                return Ok(FileContent { data: new_buf.data[s..e].to_vec() });
+                println!("📈 [BUFFER_EXTEND] need to extend buffer");
+                // ... resto del codice di estensione ...
+            } else {
+                println!("❌ [BUFFER_MISS] rel >= have");
             }
+        } else {
+            println!("❌ [BUFFER_MISS] off < buf.base");
         }
+    } else {
+        println!("❌ [NO_BUFFER] creating new buffer");
     }
 
     // 2) Miss: crea una nuova finestra allineata e fai una sola GET più grande
