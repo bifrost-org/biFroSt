@@ -33,14 +33,15 @@ pub enum ClientError {
     Serialization(#[from] serde_json::Error),
 }
 
-#[derive(Clone)]
-struct ReadBuf {
-    base: u64,
-    data: Vec<u8>,
+#[derive(Debug, Clone)]
+struct PartialReadBuf {
+    size: u64,
+    data: Vec<Option<u8>>, // ogni byte: Some(se scaricato) / None(se mancante)
 }
 
 const READ_ALIGN: u64 = 4096;
-const READ_PREFETCH: u64 = 8 * 1024 * 1024; // minimo che chiediamo al server
+const READ_PREFETCH: u64 = 512 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
+const MAX_PARTIAL_BYTES: u64 = 32 * 1024 * 1024; // oltre questo NON usiamo la struttura byte-per-byte
 
 fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
 
@@ -51,7 +52,7 @@ pub struct RemoteClient {
     timeout: Duration,
     pub path_mounting: String,
     cache_metadata: MokaCache<String, DirectoryListing>,
-    read_buf: MokaCache<String, ReadBuf>,
+    read_buf: MokaCache<String, PartialReadBuf>,
 }
 
 impl RemoteClient {
@@ -254,97 +255,130 @@ pub async fn read_file(
     size: Option<u64>,
 ) -> Result<FileContent, ClientError> {
     let off = offset.unwrap_or(0);
-    let want = size.unwrap_or(READ_PREFETCH);
+    let want = size.unwrap_or(READ_PREFETCH); // se kernel non specifica, prefetch minimo
 
-    // 1) Prova a servire dal buffer del path
-    if let Some(buf) = self.read_buf.get(path) {
-        println!("🎯 [BUFFER_FOUND] base={}, len={}", buf.base, buf.data.len());
-        if off >= buf.base {
-            let rel = off - buf.base;
-            let have = buf.data.len() as u64;
-            println!("✅ [BUFFER_CHECK] rel={}, have={}", rel, have);
-            if rel < have {
-                // Se il buffer copre già tutto ciò che serve, servi subito
-                if have - rel >= want {
-                    println!("🚀 [BUFFER_HIT] servendo dal buffer");
-                    let s = rel as usize;
-                    let e = s + want as usize;
-                    return Ok(FileContent { data: buf.data[s..e].to_vec() });
-                }
-                println!("📈 [BUFFER_EXTEND] need to extend buffer");
-                // ... resto del codice di estensione ...
-            } else {
-                println!("❌ [BUFFER_MISS] rel >= have");
+    // 1. Ottieni (o crea) il buffer parziale
+    let mut buf = match self.read_buf.get(path) {
+        Some(b) => b,
+        None => {
+            let meta = self.get_file_metadata(path).await?;
+            let file_size = meta.size;
+            if off >= file_size {
+                return Ok(FileContent { data: Vec::new() }); // EOF
             }
-        } else {
-            println!("❌ [BUFFER_MISS] off < buf.base");
+            if file_size == 0 {
+                let empty = PartialReadBuf { size: 0, data: Vec::new() };
+                self.read_buf.insert(path.to_string(), empty.clone());
+                return Ok(FileContent { data: Vec::new() });
+            }
+            if file_size > MAX_PARTIAL_BYTES {
+                // fallback semplice: leggi direttamente solo il pezzo richiesto (niente struttura enorme)
+                let span = want.min(file_size.saturating_sub(off));
+                let chunk = self.http_read_range(path, off, span).await?;
+                return Ok(FileContent { data: chunk });
+            }
+            let new_buf = PartialReadBuf {
+                size: file_size,
+                data: vec![None; file_size as usize],
+            };
+            self.read_buf.insert(path.to_string(), new_buf.clone());
+            new_buf
         }
-    } else {
-        println!("❌ [NO_BUFFER] creating new buffer");
-    }
+    };
 
-    // 2) Miss: crea una nuova finestra allineata e fai una sola GET più grande
-    // Anche qui, controlla la dimensione del file
-    let metadata = self.get_file_metadata(path).await?;
-    let file_size = metadata.size;
-    
-    let base = align_down(off, READ_ALIGN);
-    if base >= file_size {
+    if off >= buf.size {
         return Ok(FileContent { data: Vec::new() }); // EOF
     }
-    
-    let remaining_in_file = file_size - base;
-    let span = want.max(READ_PREFETCH).min(remaining_in_file);
-    
+    let effective_want = want.min(buf.size - off);
+    let end = off + effective_want;
+
+    // 2. Funzione helper per verificare copertura
+    let fully_present = {
+        let slice = &buf.data[off as usize .. end as usize];
+        slice.iter().all(|b| b.is_some())
+    };
+
+    if fully_present {
+        // copia diretta
+        let mut out = Vec::with_capacity(effective_want as usize);
+        for i in off as usize .. end as usize {
+            out.push(buf.data[i].unwrap());
+        }
+        return Ok(FileContent { data: out });
+    }
+
+    // 3. Trova il primo byte mancante
+    let mut first_missing = off;
+    for i in off as usize .. end as usize {
+        if buf.data[i].is_none() {
+            first_missing = i as u64;
+            break;
+        }
+    }
+
+    // 4. Calcola range da richiedere
+    let base = align_down(first_missing, READ_ALIGN);
+    let prefetch_to = (first_missing + READ_PREFETCH).min(buf.size);
+    let span = prefetch_to - base;
+
     let chunk = self.http_read_range(path, base, span).await?;
-
-    // Salva buffer e restituisci la slice richiesta
-    let new_buf = ReadBuf { base, data: chunk.clone() };
-    self.read_buf.insert(path.to_string(), new_buf.clone());
-
-    let rel = off.saturating_sub(base) as usize;
-    if rel >= chunk.len() {
-        return Ok(FileContent { data: Vec::new() }); // EOF
+    if !chunk.is_empty() {
+        // 5. Inserisci dati nel buffer (rispettando i limiti)
+        let mut idx_file = base;
+        for &byte in &chunk {
+            if idx_file >= buf.size { break; }
+            if let Some(slot) = buf.data.get_mut(idx_file as usize) {
+                if slot.is_none() {
+                    *slot = Some(byte);
+                }
+            }
+            idx_file += 1;
+        }
+        // Salva aggiornato
+        self.read_buf.insert(path.to_string(), buf.clone());
     }
-    let end = (rel + want as usize).min(chunk.len());
-    Ok(FileContent { data: chunk[rel..end].to_vec() })
+
+    // 6. Ora prova a costruire la risposta (può essere ancora parziale se il server ha dato short-read)
+    let mut out = Vec::with_capacity(effective_want as usize);
+    for i in off as usize .. end as usize {
+        match buf.data[i] {
+            Some(b) => out.push(b),
+            None => break, // fermati: kernel vedrà meno byte => farà nuova read
+        }
+    }
+    Ok(FileContent { data: out })
 }
 
-    // Lettura HTTP con Range chiuso; gestisce anche 416 come EOF
-    async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<u8>, ClientError> {
-        let route_path = self.build_path("/files", Some(path));
-        let url = self.build_url(&route_path);
+// ---------------- REPLACE http_read_range (semplificata) ----------------
+async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<u8>, ClientError> {
+    let route_path = self.build_path("/files", Some(path));
+    let url = self.build_url(&route_path);
 
-        let range_value = format!("bytes={}-{}", base, base + span.saturating_sub(1));
-        let mut headers = self.get_headers("GET", &route_path, Some(&range_value), None);
-        headers.insert("Range", range_value.parse().expect("Invalid Range header"));
+    let range_value = format!("bytes={}-{}", base, base + span.saturating_sub(1));
+    let mut headers = self.get_headers("GET", &route_path, Some(&range_value), None);
+    headers.insert("Range", range_value.parse().expect("Invalid Range header"));
 
-        let response = self
-            .http_client
-            .get(&url)
-            .headers(headers)
-            .timeout(self.timeout)
-            .send()
-            .await
-            .map_err(ClientError::Http)?;
+    let response = self
+        .http_client
+        .get(&url)
+        .headers(headers)
+        .timeout(self.timeout)
+        .send()
+        .await
+        .map_err(ClientError::Http)?;
 
-        let status = response.status().as_u16();
-        if (200..=299).contains(&status) {
-            let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-            // Se il server ignora Range (200), facciamo slicing locale dal base
-            if status == 200 {
-                // Non abbiamo la size totale qui; ritorniamo tutto e il chiamante sliccerà
-                return Ok(data);
-            }
-            return Ok(data);
-        } else if status == 416 {
-            // Oltre EOF -> nessun dato
-            return Ok(Vec::new());
-        } else {
-            let message = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-            Err(self.map_http_error(status, message))
-        }
+    let status = response.status().as_u16();
+    if status == 206 || status == 200 {
+        // 206: range rispettato; 200: server può aver ignorato Range (file piccolo) -> va bene
+        let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
+        Ok(data)
+    } else if status == 416 {
+        Ok(Vec::new()) // oltre EOF
+    } else {
+        let message = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        Err(self.map_http_error(status, message))
     }
+}
 
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         
