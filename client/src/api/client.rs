@@ -39,8 +39,8 @@ struct ReadBuf {
     data: Vec<u8>,
 }
 
-const READ_ALIGN: u64 = 16384;
-const READ_PREFETCH: u64 = 2048 * 1024; // minimo che chiediamo al server
+const READ_ALIGN: u64 = 4096;
+const READ_PREFETCH: u64 = 4 * 1024 * 1024; // minimo che chiediamo al server
 
 fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
 
