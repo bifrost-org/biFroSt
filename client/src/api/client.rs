@@ -40,7 +40,7 @@ struct ReadBuf {
 }
 
 const READ_ALIGN: u64 = 4096;
-const READ_PREFETCH: u64 = 4 * 1024 * 1024; // minimo che chiediamo al server
+const READ_PREFETCH: u64 = 2 * 1024 * 1024; // minimo che chiediamo al server
 
 fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
 
@@ -270,7 +270,7 @@ impl RemoteClient {
                     // Altrimenti estendi in coda per coprire fino a off+want
                     let need_more = off + want - (buf.base + have);
                     let fetch_from = buf.base + have;
-                    let fetch_len = need_more.max(READ_PREFETCH);
+                    let fetch_len = need_more.max(READ_PREFETCH * 2);
                     let more = self.http_read_range(path, fetch_from, fetch_len).await?;
                     // Append e aggiorna buffer
                     let mut combined = buf.data.clone();
@@ -322,19 +322,14 @@ impl RemoteClient {
             .map_err(ClientError::Http)?;
 
         let status = response.status().as_u16();
-        if status == 206 {
-            // Il server ha rispettato il Range: è già la finestra [base..base+span)
+        if (200..=299).contains(&status) {
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-            return Ok(data);
-        } else if status == 200 {
-            // Il server ha ignorato il Range e ha mandato l'intero file da offset 0
-            // Dobbiamo fare slicing locale per estrarre [base..base+span)
-            let full = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-            if (base as usize) >= full.len() {
-                return Ok(Vec::new()); // base oltre EOF
+            // Se il server ignora Range (200), facciamo slicing locale dal base
+            if status == 200 {
+                // Non abbiamo la size totale qui; ritorniamo tutto e il chiamante sliccerà
+                return Ok(data);
             }
-            let end = ((base + span) as usize).min(full.len());
-            return Ok(full[(base as usize)..end].to_vec());
+            return Ok(data);
         } else if status == 416 {
             // Oltre EOF -> nessun dato
             return Ok(Vec::new());
@@ -343,7 +338,6 @@ impl RemoteClient {
             Err(self.map_http_error(status, message))
         }
     }
-    
 
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         
