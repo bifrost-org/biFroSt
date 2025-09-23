@@ -33,11 +33,7 @@ pub enum ClientError {
     Serialization(#[from] serde_json::Error),
 }
 
-#[derive(Debug, Clone)]
-struct PartialReadBuf {
-    size: u64,
-    data: Vec<Option<u8>>, // ogni byte: Some(se scaricato) / None(se mancante)
-}
+
 
 const READ_ALIGN: u64 = 4096;
 const READ_PREFETCH: u64 = 512 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
@@ -52,7 +48,71 @@ pub struct RemoteClient {
     timeout: Duration,
     pub path_mounting: String,
     cache_metadata: MokaCache<String, DirectoryListing>,
-    read_buf: MokaCache<String, PartialReadBuf>,
+    read_buf: MokaCache<String, BitmapReadBuf>,
+    bitmap: Vec<u64>,
+}
+
+#[derive(Debug, Clone)]
+struct BitmapReadBuf {
+    size: u64,
+    filled: u64,          // quanti byte già marcati presenti
+    data: Vec<u8>,        // dimensione = size (solo bytes già scaricati validi dove bitmap=1)
+    bitmap: Vec<u64>,     // bit per byte (1 = presente)
+}
+
+fn new_bitmap_buf(size: u64) -> BitmapReadBuf {
+    let bits = ((size + 63) / 64) as usize;
+    BitmapReadBuf {
+        size,
+        filled: 0,
+        data: vec![0u8; size as usize],
+        bitmap: vec![0u64; bits],
+    }
+}
+
+#[inline]
+fn bit_is_set(bm: &BitmapReadBuf, idx: u64) -> bool {
+    let word = (idx / 64) as usize;
+    let bit = idx % 64;
+    (bm.bitmap[word] >> bit) & 1 == 1
+}
+
+#[inline]
+fn set_bit(bm: &mut BitmapReadBuf, idx: u64) {
+    let word = (idx / 64) as usize;
+    let bit = idx % 64;
+    let mask = 1u64 << bit;
+    if (bm.bitmap[word] & mask) == 0 {
+        bm.bitmap[word] |= mask;
+        bm.filled += 1;
+    }
+}
+
+// Controlla se intervallo [start, start+len) è tutto presente
+fn range_present(bm: &BitmapReadBuf, start: u64, len: u64) -> bool {
+    if len == 0 { return true; }
+    let end = start + len;
+    if end > bm.size { return false; }
+    let mut i = start;
+    while i < end {
+        if !bit_is_set(bm, i) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+// Marca bytes copiando in data e segnando bitmap
+fn mark_bytes(bm: &mut BitmapReadBuf, start: u64, bytes: &[u8]) {
+    let mut idx = start;
+    for &b in bytes {
+        if idx >= bm.size { break; }
+        // scrivi sempre (idempotente su già presenti)
+        bm.data[idx as usize] = b;
+        set_bit(bm, idx);
+        idx += 1;
+    }
 }
 
 impl RemoteClient {
@@ -79,6 +139,7 @@ impl RemoteClient {
                 .time_to_live(Duration::from_secs(3*60)) // TTL breve
                 .max_capacity(512)                   // ~512 buffer attivi
                 .build(),
+            bitmap: vec![],
         }
     }
 
@@ -255,93 +316,75 @@ pub async fn read_file(
     size: Option<u64>,
 ) -> Result<FileContent, ClientError> {
     let off = offset.unwrap_or(0);
-    let want = size.unwrap_or(READ_PREFETCH); // se kernel non specifica, prefetch minimo
+    let want = size.unwrap_or(READ_PREFETCH);
 
-    // 1. Ottieni (o crea) il buffer parziale
+    // Recupera o crea bitmap buffer
     let mut buf = match self.read_buf.get(path) {
         Some(b) => b,
         None => {
             let meta = self.get_file_metadata(path).await?;
             let file_size = meta.size;
             if off >= file_size {
-                return Ok(FileContent { data: Vec::new() }); // EOF
+                return Ok(FileContent { data: Vec::new() });
             }
             if file_size == 0 {
-                let empty = PartialReadBuf { size: 0, data: Vec::new() };
+                let empty = new_bitmap_buf(0);
                 self.read_buf.insert(path.to_string(), empty.clone());
                 return Ok(FileContent { data: Vec::new() });
             }
 
-            let new_buf = PartialReadBuf {
-                size: file_size,
-                data: vec![None; file_size as usize],
-            };
-            self.read_buf.insert(path.to_string(), new_buf.clone());
-            new_buf
+        
+            let nb = new_bitmap_buf(file_size);
+            self.read_buf.insert(path.to_string(), nb.clone());
+            nb
         }
     };
 
     if off >= buf.size {
-        return Ok(FileContent { data: Vec::new() }); // EOF
+        return Ok(FileContent { data: Vec::new() });
     }
+
     let effective_want = want.min(buf.size - off);
-    let end = off + effective_want;
-
-    // 2. Funzione helper per verificare copertura
-    let fully_present = {
-        let slice = &buf.data[off as usize .. end as usize];
-        slice.iter().all(|b| b.is_some())
-    };
-
-    if fully_present {
-        // copia diretta
-        let mut out = Vec::with_capacity(effective_want as usize);
-        for i in off as usize .. end as usize {
-            out.push(buf.data[i].unwrap());
-        }
-        return Ok(FileContent { data: out });
+    if range_present(&buf, off, effective_want) {
+        // Slice diretta
+        let end = off + effective_want;
+        return Ok(FileContent {
+            data: buf.data[off as usize .. end as usize].to_vec()
+        });
     }
 
-    // 3. Trova il primo byte mancante
+    // Trova primo byte mancante nell'intervallo
+    let end_req = off + effective_want;
     let mut first_missing = off;
-    for i in off as usize .. end as usize {
-        if buf.data[i].is_none() {
-            first_missing = i as u64;
-            break;
-        }
+    while first_missing < end_req {
+        if !bit_is_set(&buf, first_missing) { break; }
+        first_missing += 1;
     }
 
-    // 4. Calcola range da richiedere
+    // Calcola finestra da scaricare
     let base = align_down(first_missing, READ_ALIGN);
-    let prefetch_to = (first_missing + READ_PREFETCH).min(buf.size);
+    let target_span = std::cmp::max(READ_PREFETCH, effective_want);
+    let prefetch_to = (first_missing + target_span).min(buf.size);
     let span = prefetch_to - base;
 
     let chunk = self.http_read_range(path, base, span).await?;
     if !chunk.is_empty() {
-        // 5. Inserisci dati nel buffer (rispettando i limiti)
-        let mut idx_file = base;
-        for &byte in &chunk {
-            if idx_file >= buf.size { break; }
-            if let Some(slot) = buf.data.get_mut(idx_file as usize) {
-                if slot.is_none() {
-                    *slot = Some(byte);
-                }
-            }
-            idx_file += 1;
-        }
-        // Salva aggiornato
+        mark_bytes(&mut buf, base, &chunk);
+        // reinserisci stato aggiornato
         self.read_buf.insert(path.to_string(), buf.clone());
     }
 
-    // 6. Ora prova a costruire la risposta (può essere ancora parziale se il server ha dato short-read)
-    let mut out = Vec::with_capacity(effective_want as usize);
-    for i in off as usize .. end as usize {
-        match buf.data[i] {
-            Some(b) => out.push(b),
-            None => break, // fermati: kernel vedrà meno byte => farà nuova read
-        }
+    // Riprova a costruire risposta (può essere short se server short-read)
+    let mut available_len = 0u64;
+    while available_len < effective_want {
+        if !bit_is_set(&buf, off + available_len) { break; }
+        available_len += 1;
     }
-    Ok(FileContent { data: out })
+
+    let end = off + available_len;
+    Ok(FileContent {
+        data: buf.data[off as usize .. end as usize].to_vec()
+    })
 }
 
 // ---------------- REPLACE http_read_range (semplificata) ----------------
