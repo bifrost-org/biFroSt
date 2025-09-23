@@ -33,13 +33,25 @@ pub enum ClientError {
     Serialization(#[from] serde_json::Error),
 }
 
+#[derive(Clone)]
+struct ReadBuf {
+    base: u64,
+    data: Vec<u8>,
+}
+
+const READ_ALIGN: u64 = 4096;
+const READ_PREFETCH: u64 = 256 * 1024; // minimo che chiediamo al server
+
+fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
+
 pub struct RemoteClient {
     base_url: String,
     http_client: reqwest::Client,
     user_keys: UserKeys,
     timeout: Duration,
     pub path_mounting: String,
-    cache: MokaCache<String, DirectoryListing>,
+    cache_metadata: MokaCache<String, DirectoryListing>,
+    read_buf: MokaCache<String, ReadBuf>,
 }
 
 impl RemoteClient {
@@ -58,9 +70,13 @@ impl RemoteClient {
             }),
             timeout: config.timeout,
             path_mounting: config.mount_point.to_string_lossy().to_string(),
-            cache: MokaCache::builder()
+            cache_metadata: MokaCache::builder()
                 .time_to_live(Duration::from_secs(3*60))
                 .time_to_idle(Duration::from_secs(3*60))
+                .build(),
+            read_buf: MokaCache::builder()
+                .time_to_live(Duration::from_secs(2)) // TTL breve
+                .max_capacity(512)                   // ~512 buffer attivi
                 .build(),
         }
     }
@@ -173,7 +189,7 @@ impl RemoteClient {
         
         let headers = self.get_headers("GET", &route_path, None, None);
         
-        match self.cache.get(path) {
+        match self.cache_metadata.get(path) {
             Some(cached_response) => {
                 return Ok(cached_response.clone());
             }
@@ -225,33 +241,76 @@ impl RemoteClient {
 
         let directory_listing = DirectoryListing { files };
 
-        self.cache.insert(path.to_string(), directory_listing.clone());
+        self.cache_metadata.insert(path.to_string(), directory_listing.clone());
 
         Ok(directory_listing)
     }
 
-    pub async fn read_file(
+ pub async fn read_file(
         &self,
         path: &str,
         offset: Option<u64>,
         size: Option<u64>,
     ) -> Result<FileContent, ClientError> {
+        let off = offset.unwrap_or(0);
+        let want = size.unwrap_or(READ_PREFETCH);
+
+        // 1) Prova a servire dal buffer del path
+        if let Some(buf) = self.read_buf.get(path) {
+            if off >= buf.base {
+                let rel = off - buf.base;
+                let have = buf.data.len() as u64;
+                if rel < have {
+                    // Se il buffer copre già tutto ciò che serve, servi subito
+                    if have - rel >= want {
+                        let s = rel as usize;
+                        let e = s + want as usize;
+                        return Ok(FileContent { data: buf.data[s..e].to_vec() });
+                    }
+                    // Altrimenti estendi in coda per coprire fino a off+want
+                    let need_more = off + want - (buf.base + have);
+                    let fetch_from = buf.base + have;
+                    let fetch_len = need_more.max(READ_PREFETCH);
+                    let more = self.http_read_range(path, fetch_from, fetch_len).await?;
+                    // Append e aggiorna buffer
+                    let mut combined = buf.data.clone();
+                    combined.extend_from_slice(&more);
+                    let new_buf = ReadBuf { base: buf.base, data: combined };
+                    self.read_buf.insert(path.to_string(), new_buf.clone());
+
+                    let rel2 = off - new_buf.base;
+                    let s = rel2 as usize;
+                    let e = (s + want as usize).min(new_buf.data.len());
+                    return Ok(FileContent { data: new_buf.data[s..e].to_vec() });
+                }
+            }
+        }
+
+        // 2) Miss: crea una nuova finestra allineata e fai una sola GET più grande
+        let base = align_down(off, READ_ALIGN);
+        let span = want.max(READ_PREFETCH);
+        let chunk = self.http_read_range(path, base, span).await?;
+
+        // Salva buffer e restituisci la slice richiesta
+        let new_buf = ReadBuf { base, data: chunk.clone() };
+        self.read_buf.insert(path.to_string(), new_buf.clone());
+
+        let rel = off.saturating_sub(base) as usize;
+        if rel >= chunk.len() {
+            return Ok(FileContent { data: Vec::new() }); // EOF
+        }
+        let end = (rel + want as usize).min(chunk.len());
+        Ok(FileContent { data: chunk[rel..end].to_vec() })
+    }
+
+    // Lettura HTTP con Range chiuso; gestisce anche 416 come EOF
+    async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<u8>, ClientError> {
         let route_path = self.build_path("/files", Some(path));
         let url = self.build_url(&route_path);
 
-        let mut headers;
-        if let Some(off) = offset {
-            let range_value = if let Some(sz) = size {
-                format!("bytes={}-{}", off, off + sz - 1)
-            } else {
-                format!("bytes={}-", off)
-            };
-            headers = self.get_headers("GET", &route_path, Some(&range_value), None);
-            headers.insert("Range", range_value.parse().expect("Invalid Range header"));
-            
-        } else {
-            headers = self.get_headers("GET", &route_path, None, None);
-        }
+        let range_value = format!("bytes={}-{}", base, base + span.saturating_sub(1));
+        let mut headers = self.get_headers("GET", &route_path, Some(&range_value), None);
+        headers.insert("Range", range_value.parse().expect("Invalid Range header"));
 
         let response = self
             .http_client
@@ -260,35 +319,30 @@ impl RemoteClient {
             .timeout(self.timeout)
             .send()
             .await
-            .map_err(|e| {
-                eprintln!("❌ [READ_FILE] Error on sending request: {}", e);
-                ClientError::Http(e)
-            })?;
+            .map_err(ClientError::Http)?;
 
-        let status = response.status();
-        
-
-        if response.status().is_success() {
+        let status = response.status().as_u16();
+        if (200..=299).contains(&status) {
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-            Ok(FileContent { data })
+            // Se il server ignora Range (200), facciamo slicing locale dal base
+            if status == 200 {
+                // Non abbiamo la size totale qui; ritorniamo tutto e il chiamante sliccerà
+                return Ok(data);
+            }
+            return Ok(data);
+        } else if status == 416 {
+            // Oltre EOF -> nessun dato
+            return Ok(Vec::new());
         } else {
-            let message = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            eprintln!(
-                "❌ [READ_FILE] Errore HTTP {}: {}",
-                status.as_u16(),
-                message
-            );
-            Err(self.map_http_error(status.as_u16(), message))
+            let message = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            Err(self.map_http_error(status, message))
         }
     }
 
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         
-        self.cache.invalidate(&get_parent_path(&write_request.path));
-
+        self.cache_metadata.invalidate(&get_parent_path(&write_request.path));
+        self.read_buf.invalidate(&write_request.path);
 
         let route_path = self.build_path("/files", Some(&write_request.path));
         let url = self.build_url(&route_path);
@@ -524,8 +578,8 @@ impl RemoteClient {
         let url = self.build_url(&route_path);
         
 
-        self.cache.invalidate(&get_parent_path(&path)); //invalidate the father entries
-
+        self.cache_metadata.invalidate(&get_parent_path(&path)); //invalidate the father entries
+        self.read_buf.invalidate(path);
 
         let headers = self.get_headers("POST", &route_path, None, None);
 
@@ -538,7 +592,8 @@ impl RemoteClient {
         let route_path = self.build_path("/files", Some(path));
         let url = self.build_url(&route_path);
 
-        self.cache.invalidate(&get_parent_path(&path));
+        self.cache_metadata.invalidate(&get_parent_path(&path));
+self.read_buf.invalidate(path);
 
         let headers = self.get_headers("DELETE", &route_path, None, None);
 
