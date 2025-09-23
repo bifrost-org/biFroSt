@@ -40,7 +40,7 @@ struct ReadBuf {
 }
 
 const READ_ALIGN: u64 = 4096;
-const READ_PREFETCH: u64 = 2 * 1024 * 1024; // minimo che chiediamo al server
+const READ_PREFETCH: u64 = 4 * 1024 * 1024; // minimo che chiediamo al server
 
 fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
 
@@ -75,7 +75,7 @@ impl RemoteClient {
                 .time_to_idle(Duration::from_secs(3*60))
                 .build(),
             read_buf: MokaCache::builder()
-                .time_to_live(Duration::from_secs(2)) // TTL breve
+                .time_to_live(Duration::from_secs(3*60)) // TTL breve
                 .max_capacity(512)                   // ~512 buffer attivi
                 .build(),
         }
