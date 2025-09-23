@@ -1,6 +1,6 @@
 [package]
 name = "bifrost"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 authors = ["Francesco Borrelli <fra.b0344@gmail.com>, Emanuele Frisi <emanuelefrisi@outlook.com>"]
 description = "A remote file system client that mounts remote storage as a local directory"
@@ -17,7 +17,7 @@ tokio = { version = "1.28", features = ["full"] }
 futures = "0.3"
 
 # HTTP client
-reqwest = { version = "0.11", features = ["json", "stream", "multipart"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "stream", "multipart", "rustls-tls"] }
 
 # Serialization/Deserialization
 serde = { version = "1.0", features = ["derive"] }
@@ -59,10 +59,6 @@ moka = { version = "0.12", features = ["sync"] }
 daemonize = "0.5.0"
 
 [dev-dependencies]
-# Testing utilities
-tempfile = "3.6"
-assert_fs = "1.0"
-httpmock = "0.6"
 
 [lib]
 name = "bifrost"
@@ -78,17 +74,3 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
-
-# Configurazione del server remoto
-server_url = "http://localhost"
-port = 8080
-
-# Punto di mount del filesystem
-mount_point = "/mnt/remotefs"
-
-# Timeout in nanosecondi (chrono::Duration)
-# 60 secondi = 60,000,000,000 nanosecondi
-timeout = 60000000000
-
-# Configurazione di autenticazione (opzionale)
-api_key = "your-api-key-here"
