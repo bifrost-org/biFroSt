@@ -322,14 +322,19 @@ impl RemoteClient {
             .map_err(ClientError::Http)?;
 
         let status = response.status().as_u16();
-        if (200..=299).contains(&status) {
+        if status == 206 {
+            // Il server ha rispettato il Range: è già la finestra [base..base+span)
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-            // Se il server ignora Range (200), facciamo slicing locale dal base
-            if status == 200 {
-                // Non abbiamo la size totale qui; ritorniamo tutto e il chiamante sliccerà
-                return Ok(data);
-            }
             return Ok(data);
+        } else if status == 200 {
+            // Il server ha ignorato il Range e ha mandato l'intero file da offset 0
+            // Dobbiamo fare slicing locale per estrarre [base..base+span)
+            let full = response.bytes().await.map_err(ClientError::Http)?.to_vec();
+            if (base as usize) >= full.len() {
+                return Ok(Vec::new()); // base oltre EOF
+            }
+            let end = ((base + span) as usize).min(full.len());
+            return Ok(full[(base as usize)..end].to_vec());
         } else if status == 416 {
             // Oltre EOF -> nessun dato
             return Ok(Vec::new());
@@ -338,6 +343,7 @@ impl RemoteClient {
             Err(self.map_http_error(status, message))
         }
     }
+    
 
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
         
