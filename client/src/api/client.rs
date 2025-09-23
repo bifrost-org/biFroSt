@@ -40,7 +40,7 @@ struct ReadBuf {
 }
 
 const READ_ALIGN: u64 = 4096;
-const READ_PREFETCH: u64 = 256 * 1024; // minimo che chiediamo al server
+const READ_PREFETCH: u64 = 512 * 1024; // minimo che chiediamo al server
 
 fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
 
