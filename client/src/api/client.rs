@@ -311,7 +311,7 @@ async fn http_read_full_file(&self, path: &str) -> Result<Vec<u8>, ClientError> 
     } else if status == 404 {
         return Err(ClientError::NotFound { path: path.to_string() });
     } else {
-        let message = response.text().await.unwrap_or_else(|| "Unknown error".to_string());
+        let message = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
         return Err(self.map_http_error(status, message));
     }
 }
