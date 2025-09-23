@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use crate::api::client::{ ClientError, RemoteClient };
 use crate::api::models::*;
 use crate::fs::attributes::{ self, new_directory_attr, new_file_attr };
@@ -16,12 +18,6 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::time::{ Duration, SystemTime };
 
-
-#[allow(unused_macros)]
-macro_rules! debug_println {
-    ($($arg:tt)*) => {
-    };
-}
 
 pub struct RemoteFileSystem {
     inode_to_path: HashMap<u64, String>,
@@ -223,7 +219,7 @@ impl Filesystem for RemoteFileSystem {
         let filename = match name.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [LOOKUP] Nome file non valido: {:?}", name);
+                eprintln!("❌ [LOOKUP] Nome file non valido: {:?}", name);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -287,7 +283,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(path) => path.clone(),
             None => {
-                debug_println!("❌ [LOOKUP] Directory padre con inode {} non trovata", parent);
+                eprintln!("❌ [LOOKUP] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -320,7 +316,7 @@ impl Filesystem for RemoteFileSystem {
                     return;
                 }
                 Err(e) => {
-                    debug_println!("❌ [LOOKUP] Errore verifica cache: {}", e);
+                    eprintln!("❌ [LOOKUP] Errore verifica cache: {}", e);
                     let attr = attributes::new_file_attr(existing_inode, 0, 0o644);
                     let ttl = Duration::from_secs(1);
                     reply.entry(&ttl, &attr, 0);
@@ -459,7 +455,7 @@ impl Filesystem for RemoteFileSystem {
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [SETATTR] Inode {} non trovato", ino);
+                eprintln!("❌ [SETATTR] Inode {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -480,12 +476,12 @@ impl Filesystem for RemoteFileSystem {
         {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [SETATTR] File non trovato sul server: {}", path);
+                eprintln!("❌ [SETATTR] File non trovato sul server: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [SETATTR] Errore recupero metadati per '{}': {}", path, e);
+                eprintln!("❌ [SETATTR] Errore recupero metadati per '{}': {}", path, e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -567,7 +563,7 @@ impl Filesystem for RemoteFileSystem {
                     self.get_current_attributes(ino, &path, reply);
                 }
                 Err(e) => {
-                    debug_println!("❌ [SETATTR] Errore modifica dimensione: {}", e);
+                    eprintln!("❌ [SETATTR] Errore modifica dimensione: {}", e);
                     let error_code = match e {
                         ClientError::NotFound { .. } => libc::ENOENT,
                         ClientError::PermissionDenied(_) => libc::EPERM,
@@ -609,7 +605,7 @@ impl Filesystem for RemoteFileSystem {
                     self.get_current_attributes(ino, &path, reply);
                 }
                 Err(e) => {
-                    debug_println!("❌ [SETATTR] Errore modifica permessi: {}", e);
+                    eprintln!("❌ [SETATTR] Errore modifica permessi: {}", e);
                     let error_code = match e {
                         ClientError::NotFound { .. } => libc::ENOENT,
                         ClientError::PermissionDenied(_) => libc::EPERM,
@@ -683,7 +679,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [READLINK] Inode {} non trovato", ino);
+                eprintln!("❌ [READLINK] Inode {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -726,11 +722,11 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 }
             }
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [READLINK] File non trovato: {}", path);
+                eprintln!("❌ [READLINK] File non trovato: {}", path);
                 reply.error(libc::ENOENT);
             }
             Err(e) => {
-                debug_println!("❌ [READLINK] Errore server: {}", e);
+                eprintln!("❌ [READLINK] Errore server: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -749,7 +745,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let filename = match name.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [MKNOD] Nome file non valido: {:?}", name);
+                eprintln!("❌ [MKNOD] Nome file non valido: {:?}", name);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -758,7 +754,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [MKNOD] Directory padre con inode {} non trovata", parent);
+                eprintln!("❌ [MKNOD] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -833,7 +829,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                                 
                             }
                             Err(e) => {
-                                debug_println!(
+                                eprintln!(
                                     "❌ [MKNOD] Errore recupero metadati dopo creazione: {}",
                                     e
                                 );
@@ -845,7 +841,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                         }
                     }
                     Err(e) => {
-                        debug_println!("❌ [MKNOD] Errore creazione file sul server: {}", e);
+                        eprintln!("❌ [MKNOD] Errore creazione file sul server: {}", e);
                         match e {
                             ClientError::NotFound { .. } => reply.error(libc::ENOENT),
                             _ => reply.error(libc::EIO),
@@ -878,7 +874,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 reply.error(libc::EPERM);
             }
             _ => {
-                debug_println!("❌ [MKNOD] Tipo file sconosciuto: {:#o}", file_type);
+                eprintln!("❌ [MKNOD] Tipo file sconosciuto: {:#o}", file_type);
                 reply.error(libc::EINVAL);
             }
         }
@@ -899,7 +895,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let dirname = match name.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [MKDIR] Nome directory non valido: {:?}", name);
+                eprintln!("❌ [MKDIR] Nome directory non valido: {:?}", name);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -908,7 +904,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [MKDIR] Directory padre con inode {} non trovata", parent);
+                eprintln!("❌ [MKDIR] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -963,7 +959,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                         
                     }
                     Err(e) => {
-                        debug_println!("❌ [MKDIR] Errore recupero metadati dopo creazione: {}", e);
+                        eprintln!("❌ [MKDIR] Errore recupero metadati dopo creazione: {}", e);
                         let attr = new_directory_attr(new_inode, effective_permissions);
                         let ttl = Duration::from_secs(1);
                         reply.entry(&ttl, &attr, 0);
@@ -971,7 +967,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 }
             }
             Err(e) => {
-                debug_println!("❌ [MKDIR] Errore creazione directory sul server: {}", e);
+                eprintln!("❌ [MKDIR] Errore creazione directory sul server: {}", e);
                 match e {
                     ClientError::NotFound { .. } => reply.error(libc::ENOENT),
                     _ => reply.error(libc::EIO),
@@ -986,7 +982,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let filename = match name.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [UNLINK] Nome file non valido: {:?}", name);
+                eprintln!("❌ [UNLINK] Nome file non valido: {:?}", name);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -995,7 +991,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [UNLINK] Directory padre con inode {} non trovata", parent);
+                eprintln!("❌ [UNLINK] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1031,7 +1027,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                         return;
                     }
                     Err(e) => {
-                        debug_println!("❌ [UNLINK] Errore verifica esistenza: {}", e);
+                        eprintln!("❌ [UNLINK] Errore verifica esistenza: {}", e);
                         reply.error(libc::EIO);
                         return;
                     }
@@ -1061,7 +1057,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                     return;
                 }
                 Err(e) => {
-                    debug_println!("❌ [UNLINK] Errore verifica tipo file: {}", e);
+                    eprintln!("❌ [UNLINK] Errore verifica tipo file: {}", e);
                     reply.error(libc::EIO);
                     return;
                 }
@@ -1092,7 +1088,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 reply.ok(); // Su Unix, eliminare un file già eliminato non è un errore
             }
             Err(e) => {
-                debug_println!("❌ [UNLINK] Errore eliminazione dal server: {}", e);
+                eprintln!("❌ [UNLINK] Errore eliminazione dal server: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -1104,7 +1100,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let dirname = match name.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [RMDIR] Nome directory non valido: {:?}", name);
+                eprintln!("❌ [RMDIR] Nome directory non valido: {:?}", name);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -1119,7 +1115,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [RMDIR] Directory padre con inode {} non trovata", parent);
+                eprintln!("❌ [RMDIR] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1166,7 +1162,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                         return;
                     }
                     Err(e) => {
-                        debug_println!("❌ [RMDIR] Errore verifica esistenza: {}", e);
+                        eprintln!("❌ [RMDIR] Errore verifica esistenza: {}", e);
                         reply.error(libc::EIO);
                         return;
                     }
@@ -1196,7 +1192,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                     return;
                 }
                 Err(e) => {
-                    debug_println!("❌ [RMDIR] Errore verifica tipo directory: {}", e);
+                    eprintln!("❌ [RMDIR] Errore verifica tipo directory: {}", e);
                     reply.error(libc::EIO);
                     return;
                 }
@@ -1226,7 +1222,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 
             }
             Err(e) => {
-                debug_println!("❌ [RMDIR] Errore verifica directory vuota: {}", e);
+                eprintln!("❌ [RMDIR] Errore verifica directory vuota: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -1254,7 +1250,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 reply.ok(); // Su Unix, eliminare una directory già eliminata non è un errore
             }
             Err(e) => {
-                debug_println!("❌ [RMDIR] Errore eliminazione dal server: {}", e);
+                eprintln!("❌ [RMDIR] Errore eliminazione dal server: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -1273,7 +1269,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let link_name = match name.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [SYMLINK] Nome symlink non valido: {:?}", name);
+                eprintln!("❌ [SYMLINK] Nome symlink non valido: {:?}", name);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -1282,7 +1278,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let target_path = match link.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [SYMLINK] Path target non valido: {:?}", link);
+                eprintln!("❌ [SYMLINK] Path target non valido: {:?}", link);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -1291,7 +1287,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [SYMLINK] Directory padre con inode {} non trovata", parent);
+                eprintln!("❌ [SYMLINK] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1367,7 +1363,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 }
             }
             Err(e) => {
-                debug_println!("❌ [SYMLINK] Errore creazione symlink sul server: {}", e);
+                eprintln!("❌ [SYMLINK] Errore creazione symlink sul server: {}", e);
                 match e {
                     ClientError::NotFound { .. } => reply.error(libc::ENOENT),
                     ClientError::PermissionDenied(_) => reply.error(libc::EPERM),
@@ -1392,7 +1388,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let old_filename = match name.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [RENAME] Nome file originale non valido: {:?}", name);
+                eprintln!("❌ [RENAME] Nome file originale non valido: {:?}", name);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -1401,7 +1397,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let new_filename = match newname.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [RENAME] Nuovo nome file non valido: {:?}", newname);
+                eprintln!("❌ [RENAME] Nuovo nome file non valido: {:?}", newname);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -1414,7 +1410,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let old_parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!(
+                eprintln!(
                     "❌ [RENAME] Directory padre originale con inode {} non trovata",
                     parent
                 );
@@ -1426,7 +1422,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let new_parent_path = match self.get_path(newparent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!(
+                eprintln!(
                     "❌ [RENAME] Nuova directory padre con inode {} non trovata",
                     newparent
                 );
@@ -1485,12 +1481,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [RENAME] File originale non trovato: {}", old_path);
+                eprintln!("❌ [RENAME] File originale non trovato: {}", old_path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [RENAME] Errore verifica file originale: {}", e);
+                eprintln!("❌ [RENAME] Errore verifica file originale: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -1525,7 +1521,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                         }
                     }
                     Err(e) => {
-                        debug_println!("❌ [RENAME] Errore verifica directory vuota: {}", e);
+                        eprintln!("❌ [RENAME] Errore verifica directory vuota: {}", e);
                         reply.error(libc::EIO);
                         return;
                     }
@@ -1576,11 +1572,11 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 
             }
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [RENAME] File originale non trovato sul server: {}", old_path);
+                eprintln!("❌ [RENAME] File originale non trovato sul server: {}", old_path);
                 reply.error(libc::ENOENT);
             }
             Err(e) => {
-                debug_println!("❌ [RENAME] Errore rename sul server: {}", e);
+                eprintln!("❌ [RENAME] Errore rename sul server: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -1599,7 +1595,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let link_name = match newname.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [LINK] Nome hard link non valido: {:?}", newname);
+                eprintln!("❌ [LINK] Nome hard link non valido: {:?}", newname);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -1608,7 +1604,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let source_path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [LINK] Inode sorgente {} non trovato", ino);
+                eprintln!("❌ [LINK] Inode sorgente {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1617,7 +1613,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let parent_path = match self.get_path(newparent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [LINK] Directory padre con inode {} non trovata", newparent);
+                eprintln!("❌ [LINK] Directory padre con inode {} non trovata", newparent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1652,12 +1648,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [LINK] File sorgente non trovato: {}", source_path);
+                eprintln!("❌ [LINK] File sorgente non trovato: {}", source_path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [LINK] Errore verifica file sorgente: {}", e);
+                eprintln!("❌ [LINK] Errore verifica file sorgente: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -1718,7 +1714,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 {
                     Ok(metadata) => metadata,
                     Err(e) => {
-                        debug_println!("❌ [LINK] Errore recupero metadati dopo creazione: {}", e);
+                        eprintln!("❌ [LINK] Errore recupero metadati dopo creazione: {}", e);
                         source_metadata
                     }
                 };
@@ -1730,18 +1726,18 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 
             }
             Err(ClientError::NotFound { .. }) => {
-                debug_println!(
+                eprintln!(
                     "❌ [LINK] File sorgente non trovato durante creazione: {}",
                     source_path
                 );
                 reply.error(libc::ENOENT);
             }
             Err(ClientError::PermissionDenied(_)) => {
-                debug_println!("❌ [LINK] Permesso negato per creazione hard link");
+                eprintln!("❌ [LINK] Permesso negato per creazione hard link");
                 reply.error(libc::EPERM);
             }
             Err(e) => {
-                debug_println!("❌ [LINK] Errore creazione hard link sul server: {}", e);
+                eprintln!("❌ [LINK] Errore creazione hard link sul server: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -1756,8 +1752,8 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 p.clone()
             }
             None => {
-                debug_println!("❌ [OPEN] INODE {} NON TROVATO", ino);
-                debug_println!("❌ [OPEN] Inode {} non trovato", ino);
+                eprintln!("❌ [OPEN] INODE {} NON TROVATO", ino);
+                eprintln!("❌ [OPEN] Inode {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1794,12 +1790,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 metadata
             }
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [OPEN] FILE NON TROVATO: {}", path);
+                eprintln!("❌ [OPEN] FILE NON TROVATO: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [OPEN] ERRORE METADATA: {}", e);
+                eprintln!("❌ [OPEN] ERRORE METADATA: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -1816,12 +1812,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 
             }
             FileKind::Directory => {
-                debug_println!("❌ [OPEN] È una directory");
+                eprintln!("❌ [OPEN] È una directory");
                 reply.error(libc::EISDIR);
                 return;
             }
             _ => {
-                debug_println!("❌ [OPEN] Tipo file non supportato: {:?}", metadata.kind);
+                eprintln!("❌ [OPEN] Tipo file non supportato: {:?}", metadata.kind);
                 reply.error(libc::EPERM);
                 return;
             }
@@ -1863,7 +1859,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             libc::O_RDONLY => {
                 
                 if (effective_perms & 0o4) == 0 {
-                    debug_println!("❌ [OPEN] Permesso di lettura negato");
+                    eprintln!("❌ [OPEN] Permesso di lettura negato");
                     reply.error(libc::EACCES);
                     return;
                 }
@@ -1872,7 +1868,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             libc::O_WRONLY => {
                 
                 if (effective_perms & 0o2) == 0 {
-                    debug_println!("❌ [OPEN] Permesso di scrittura negato");
+                    eprintln!("❌ [OPEN] Permesso di scrittura negato");
                     reply.error(libc::EACCES);
                     return;
                 }
@@ -1881,14 +1877,14 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             libc::O_RDWR => {
                 
                 if (effective_perms & 0o6) != 0o6 {
-                    debug_println!("❌ [OPEN] Permessi lettura/scrittura insufficienti");
+                    eprintln!("❌ [OPEN] Permessi lettura/scrittura insufficienti");
                     reply.error(libc::EACCES);
                     return;
                 }
                 
             }
             _ => {
-                debug_println!("❌ [OPEN] Modalità di accesso non valida: {:#x}", access_mode);
+                eprintln!("❌ [OPEN] Modalità di accesso non valida: {:#x}", access_mode);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -1935,7 +1931,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         
 
         if offset < 0 {
-            debug_println!("❌ [READ] Offset negativo: {}", offset);
+            eprintln!("❌ [READ] Offset negativo: {}", offset);
             reply.error(libc::EINVAL);
             return;
         }
@@ -1952,7 +1948,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
             None => {
-                debug_println!("❌ [READ] File handle {} non trovato", fh);
+                eprintln!("❌ [READ] File handle {} non trovato", fh);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -1978,12 +1974,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [READ] File non trovato sul server: {}", path);
+                eprintln!("❌ [READ] File non trovato sul server: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [READ] Errore verifica metadati: {}", e);
+                eprintln!("❌ [READ] Errore verifica metadati: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -2048,15 +2044,15 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 }
             }
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [READ] File eliminato durante la lettura: {}", path);
+                eprintln!("❌ [READ] File eliminato durante la lettura: {}", path);
                 reply.error(libc::ENOENT);
             }
             Err(ClientError::PermissionDenied(_)) => {
-                debug_println!("❌ [READ] Permesso di lettura negato: {}", path);
+                eprintln!("❌ [READ] Permesso di lettura negato: {}", path);
                 reply.error(libc::EACCES);
             }
             Err(e) => {
-                debug_println!("❌ [READ] Errore lettura dal server: {}", e);
+                eprintln!("❌ [READ] Errore lettura dal server: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -2079,7 +2075,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         
 
         if offset < 0 {
-            debug_println!("❌ [WRITE] Offset negativo: {}", offset);
+            eprintln!("❌ [WRITE] Offset negativo: {}", offset);
             reply.error(libc::EINVAL);
             return;
         }
@@ -2096,7 +2092,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
             None => {
-                debug_println!("❌ [WRITE] File handle {} non trovato", fh);
+                eprintln!("❌ [WRITE] File handle {} non trovato", fh);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -2124,12 +2120,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [WRITE] File non trovato sul server: {}", path);
+                eprintln!("❌ [WRITE] File non trovato sul server: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [WRITE] Errore verifica metadati: {}", e);
+                eprintln!("❌ [WRITE] Errore verifica metadati: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -2202,7 +2198,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 let file = if open_file.is_some() {
                     open_file.unwrap()
                 } else {
-                    debug_println!("❌ [WRITE] File handle {} non trovato", fh);
+                    eprintln!("❌ [WRITE] File handle {} non trovato", fh);
                     reply.error(libc::EBADF);
                     return;
                 };
@@ -2231,7 +2227,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 });
 
                 if let Err(e) = write_result1 {
-                   debug_println!("❌ [WRITE] Errore scrittura file: {}", e);
+                   eprintln!("❌ [WRITE] Errore scrittura file: {}", e);
                     reply.error(libc::EIO);
                     return;
                 }
@@ -2284,23 +2280,23 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 reply.written(data_len as u32);
             }
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [WRITE] File eliminato durante la scrittura: {}", path);
+                eprintln!("❌ [WRITE] File eliminato durante la scrittura: {}", path);
                 reply.error(libc::ENOENT);
             }
             Err(ClientError::PermissionDenied(_)) => {
-                debug_println!("❌ [WRITE] Permesso di scrittura negato: {}", path);
+                eprintln!("❌ [WRITE] Permesso di scrittura negato: {}", path);
                 reply.error(libc::EACCES);
             }
             Err(ClientError::Server { status: 413, .. }) => {
-                debug_println!("❌ [WRITE] File troppo grande: {}", path);
+                eprintln!("❌ [WRITE] File troppo grande: {}", path);
                 reply.error(libc::EFBIG);
             }
             Err(ClientError::Server { status: 507, .. }) => {
-                debug_println!("❌ [WRITE] Spazio insufficiente sul server: {}", path);
+                eprintln!("❌ [WRITE] Spazio insufficiente sul server: {}", path);
                 reply.error(libc::ENOSPC);
             }
             Err(e) => {
-                debug_println!("❌ [WRITE] Errore scrittura sul server: {}", e);
+                eprintln!("❌ [WRITE] Errore scrittura sul server: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -2324,7 +2320,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
             None => {
-                debug_println!("❌ [WRITE] File handle {} non trovato", fh);
+                eprintln!("❌ [WRITE] File handle {} non trovato", fh);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -2341,12 +2337,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [WRITE] File non trovato sul server: {}", open_file.path);
+                eprintln!("❌ [WRITE] File non trovato sul server: {}", open_file.path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [WRITE] Errore verifica metadati: {}", e);
+                eprintln!("❌ [WRITE] Errore verifica metadati: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -2359,7 +2355,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             let file = if open_file.is_some() {
                 open_file.unwrap()
             } else {
-                debug_println!("❌ [WRITE] File handle {} non trovato", fh);
+                eprintln!("❌ [WRITE] File handle {} non trovato", fh);
                 reply.error(libc::EBADF);
                 return;
             };
@@ -2367,7 +2363,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             let file = if let Some(f) = self.open_files.get_mut(&fh) {
                 f
             } else {
-                debug_println!("❌ [WRITE] File handle {} non trovato", fh);
+                eprintln!("❌ [WRITE] File handle {} non trovato", fh);
                 reply.error(libc::EBADF);
                 return;
             };
@@ -2393,7 +2389,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
             });
 
             if let Err(e) = write_result1 {
-                debug_println!("❌ [WRITE] Errore scrittura file: {}", e);
+                eprintln!("❌ [WRITE] Errore scrittura file: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -2452,7 +2448,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
             None => {
-                debug_println!("❌ [FSYNC] File handle {} non trovato", fh);
+                eprintln!("❌ [FSYNC] File handle {} non trovato", fh);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -2483,11 +2479,11 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 reply.ok();
             }
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [FSYNC] File eliminato durante fsync: {}", path);
+                eprintln!("❌ [FSYNC] File eliminato durante fsync: {}", path);
                 reply.error(libc::ENOENT);
             }
             Err(e) => {
-                debug_println!("❌ [FSYNC] Errore verifica server: {}", e);
+                eprintln!("❌ [FSYNC] Errore verifica server: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -2499,7 +2495,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [OPENDIR] Inode {} non trovato", ino);
+                eprintln!("❌ [OPENDIR] Inode {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -2517,12 +2513,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [OPENDIR] Directory non trovata sul server: {}", path);
+                eprintln!("❌ [OPENDIR] Directory non trovata sul server: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [OPENDIR] Errore verifica metadati: {}", e);
+                eprintln!("❌ [OPENDIR] Errore verifica metadati: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -2541,12 +2537,12 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 
             }
             Err(ClientError::PermissionDenied(_)) => {
-                debug_println!("❌ [OPENDIR] Permesso di lettura negato: {}", path);
+                eprintln!("❌ [OPENDIR] Permesso di lettura negato: {}", path);
                 reply.error(libc::EACCES);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [OPENDIR] Errore accesso directory: {}", e);
+                eprintln!("❌ [OPENDIR] Errore accesso directory: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -2578,7 +2574,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
             None => {
-                debug_println!("❌ [READDIR] Directory handle {} non trovato", fh);
+                eprintln!("❌ [READDIR] Directory handle {} non trovato", fh);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -2599,17 +2595,17 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let listing = match listing_result {
             Ok(listing) => listing,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [READDIR] Directory non trovata sul server: {}", path);
+                eprintln!("❌ [READDIR] Directory non trovata sul server: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(ClientError::PermissionDenied(_)) => {
-                debug_println!("❌ [READDIR] Permesso di lettura negato: {}", path);
+                eprintln!("❌ [READDIR] Permesso di lettura negato: {}", path);
                 reply.error(libc::EACCES);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [READDIR] Errore lettura directory: {}", e);
+                eprintln!("❌ [READDIR] Errore lettura directory: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -2745,7 +2741,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
             None => {
-                debug_println!("❌ [FSYNCDIR] Directory handle {} non trovato", fh);
+                eprintln!("❌ [FSYNCDIR] Directory handle {} non trovato", fh);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -2764,19 +2760,19 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [FSYNCDIR] Directory non trovata: {}", path);
+                eprintln!("❌ [FSYNCDIR] Directory non trovata: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [FSYNCDIR] Errore verifica metadati: {}", e);
+                eprintln!("❌ [FSYNCDIR] Errore verifica metadati: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
         };
 
         if metadata.kind != FileKind::Directory {
-            debug_println!("❌ [FSYNCDIR] '{}' non è una directory", path);
+            eprintln!("❌ [FSYNCDIR] '{}' non è una directory", path);
             reply.error(libc::ENOTDIR);
             return;
         }
@@ -2790,15 +2786,15 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
                 reply.ok();
             }
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [FSYNCDIR] Directory eliminata durante fsyncdir: {}", path);
+                eprintln!("❌ [FSYNCDIR] Directory eliminata durante fsyncdir: {}", path);
                 reply.error(libc::ENOENT);
             }
             Err(ClientError::PermissionDenied(_)) => {
-                debug_println!("❌ [FSYNCDIR] Permesso negato per directory: {}", path);
+                eprintln!("❌ [FSYNCDIR] Permesso negato per directory: {}", path);
                 reply.error(libc::EACCES);
             }
             Err(e) => {
-                debug_println!("❌ [FSYNCDIR] Errore verifica directory: {}", e);
+                eprintln!("❌ [FSYNCDIR] Errore verifica directory: {}", e);
                 reply.error(libc::EIO);
             }
         }
@@ -2871,7 +2867,7 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [ACCESS] Inode {} non trovato", ino);
+                eprintln!("❌ [ACCESS] Inode {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -2897,17 +2893,17 @@ if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [ACCESS] File non trovato: {}", path);
+                eprintln!("❌ [ACCESS] File non trovato: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(ClientError::PermissionDenied(_)) => {
-                debug_println!("❌ [ACCESS] Permesso negato per metadati: {}", path);
+                eprintln!("❌ [ACCESS] Permesso negato per metadati: {}", path);
                 reply.error(libc::EACCES);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [ACCESS] Errore verifica esistenza: {}", e);
+                eprintln!("❌ [ACCESS] Errore verifica esistenza: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -2964,7 +2960,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let filename = match name.to_str() {
             Some(s) => s,
             None => {
-                debug_println!("❌ [CREATE] Nome file non valido: {:?}", name);
+                eprintln!("❌ [CREATE] Nome file non valido: {:?}", name);
                 reply.error(libc::EINVAL);
                 return;
             }
@@ -2973,7 +2969,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [CREATE] Directory padre con inode {} non trovata", parent);
+                eprintln!("❌ [CREATE] Directory padre con inode {} non trovata", parent);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -3061,7 +3057,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
                         reply.created(&ttl, &attr, 0, fh, FOPEN_DIRECT_IO);
                     }
                     Err(e) => {
-                        debug_println!("❌ [CREATE] Errore recupero metadati: {}", e);
+                        eprintln!("❌ [CREATE] Errore recupero metadati: {}", e);
                         let attr = new_file_attr(new_inode, 0, effective_permissions);
                         let ttl = Duration::from_secs(1);
                         reply.created(&ttl, &attr, 0, fh, 0);
@@ -3069,7 +3065,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
                 }
             }
             Err(e) => {
-                debug_println!("❌ [CREATE] Errore creazione file sul server: {}", e);
+                eprintln!("❌ [CREATE] Errore creazione file sul server: {}", e);
                 match e {
                     ClientError::NotFound { .. } => reply.error(libc::ENOENT),
                     ClientError::PermissionDenied(_) => reply.error(libc::EPERM),
@@ -3165,7 +3161,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
                                 );
                                 reply.error(libc::ENOSYS);
                             } else {
-                                debug_println!("❌ [SETLK] Lock conflict, non-blocking");
+                                eprintln!("❌ [SETLK] Lock conflict, non-blocking");
                                 reply.error(libc::EAGAIN);
                             }
                             return;
@@ -3205,7 +3201,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
-                debug_println!("❌ [BMAP] Inode {} non trovato", ino);
+                eprintln!("❌ [BMAP] Inode {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -3221,12 +3217,12 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let metadata = match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => metadata,
             Err(ClientError::NotFound { .. }) => {
-                debug_println!("❌ [BMAP] File non trovato: {}", path);
+                eprintln!("❌ [BMAP] File non trovato: {}", path);
                 reply.error(libc::ENOENT);
                 return;
             }
             Err(e) => {
-                debug_println!("❌ [BMAP] Errore metadati: {}", e);
+                eprintln!("❌ [BMAP] Errore metadati: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -3312,7 +3308,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         
 
         if offset_in < 0 || offset_out < 0 {
-            debug_println!("❌ [COPY_FILE_RANGE] Offset negativi non supportati");
+            eprintln!("❌ [COPY_FILE_RANGE] Offset negativi non supportati");
             reply.error(libc::EINVAL);
             return;
         }
@@ -3326,7 +3322,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let source_file = match self.open_files.get(&fh_in) {
             Some(file) => file,
             None => {
-                debug_println!("❌ [COPY_FILE_RANGE] File handle sorgente {} non trovato", fh_in);
+                eprintln!("❌ [COPY_FILE_RANGE] File handle sorgente {} non trovato", fh_in);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -3335,7 +3331,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let dest_file = match self.open_files.get(&fh_out) {
             Some(file) => file,
             None => {
-                debug_println!("❌ [COPY_FILE_RANGE] File handle destinazione {} non trovato", fh_out);
+                eprintln!("❌ [COPY_FILE_RANGE] File handle destinazione {} non trovato", fh_out);
                 reply.error(libc::EBADF);
                 return;
             }
@@ -3345,13 +3341,13 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         let dest_access = dest_file.flags & libc::O_ACCMODE;
 
         if source_access == libc::O_WRONLY {
-            debug_println!("❌ [COPY_FILE_RANGE] File sorgente non leggibile");
+            eprintln!("❌ [COPY_FILE_RANGE] File sorgente non leggibile");
             reply.error(libc::EBADF);
             return;
         }
 
         if dest_access == libc::O_RDONLY {
-            debug_println!("❌ [COPY_FILE_RANGE] File destinazione non scrivibile");
+            eprintln!("❌ [COPY_FILE_RANGE] File destinazione non scrivibile");
             reply.error(libc::EBADF);
             return;
         }
@@ -3376,7 +3372,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         {
             Ok(data) => data.data,
             Err(e) => {
-                debug_println!("❌ [COPY_FILE_RANGE] Errore lettura sorgente: {}", e);
+                eprintln!("❌ [COPY_FILE_RANGE] Errore lettura sorgente: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -3396,7 +3392,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
         {
             Ok(metadata) => metadata,
             Err(e) => {
-                debug_println!("❌ [COPY_FILE_RANGE] Errore metadati destinazione: {}", e);
+                eprintln!("❌ [COPY_FILE_RANGE] Errore metadati destinazione: {}", e);
                 reply.error(libc::EIO);
                 return;
             }
@@ -3425,7 +3421,7 @@ if check_exec  && (effective_perms & 0o1) == 0 && metadata.kind != FileKind::Dir
                 reply.written(bytes_to_copy as u32);
             }
             Err(e) => {
-                debug_println!("❌ [COPY_FILE_RANGE] Errore scrittura: {}", e);
+                eprintln!("❌ [COPY_FILE_RANGE] Errore scrittura: {}", e);
                 reply.error(libc::EIO);
             }
         }

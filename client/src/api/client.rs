@@ -12,14 +12,6 @@ use std::time::Duration;
 use moka::sync::Cache as MokaCache;
 
 
-
-#[allow(unused_macros)]
-macro_rules! debug_println {
-    ($($arg:tt)*) => {
-    };
-}
-
-
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error("HTTP request failed: {0}")]
@@ -200,7 +192,7 @@ impl RemoteClient {
         {
             Ok(r) => r,
             Err(e) => {
-                debug_println!("❌ [LIST_DIR] Error on sending request: {}", e);
+                eprintln!("❌ [LIST_DIR] Error on sending request: {}", e);
                 return Err(ClientError::Http(e));
             }
         };
@@ -269,7 +261,7 @@ impl RemoteClient {
             .send()
             .await
             .map_err(|e| {
-                debug_println!("❌ [READ_FILE] Error on sending request: {}", e);
+                eprintln!("❌ [READ_FILE] Error on sending request: {}", e);
                 ClientError::Http(e)
             })?;
 
@@ -284,7 +276,7 @@ impl RemoteClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            debug_println!(
+            eprintln!(
                 "❌ [READ_FILE] Errore HTTP {}: {}",
                 status.as_u16(),
                 message
@@ -304,7 +296,7 @@ impl RemoteClient {
         match write_request.kind {
             FileKind::Symlink | FileKind::Hardlink => {
                 if write_request.ref_path.is_none() {
-                    debug_println!("❌ [WRITE_FILE] refPath mancante per link");
+                    eprintln!("❌ [WRITE_FILE] refPath mancante per link");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "refPath required for link types".into(),
@@ -325,7 +317,7 @@ impl RemoteClient {
                 if has_content
                     && (write_request.size as usize) != write_request.data.as_ref().unwrap().len()
                 {
-                    debug_println!("❌ [WRITE_FILE] Size declared ≠ content length (write)");
+                    eprintln!("❌ [WRITE_FILE] Size declared ≠ content length (write)");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Declared size does not match content length (write)".into(),
@@ -334,14 +326,14 @@ impl RemoteClient {
             }
             Mode::Append => {
                 if !has_content {
-                    debug_println!("❌ [WRITE_FILE] Content richiesto in append");
+                    eprintln!("❌ [WRITE_FILE] Content richiesto in append");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Content required for append".into(),
                     });
                 }
                 if (write_request.size as usize) != write_request.data.as_ref().unwrap().len() {
-                    debug_println!("❌ [WRITE_FILE] Size declared ≠ content length (append)");
+                    eprintln!("❌ [WRITE_FILE] Size declared ≠ content length (append)");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Declared size does not match content length (append)".into(),
@@ -350,21 +342,21 @@ impl RemoteClient {
             }
             Mode::WriteAt => {
                 if !has_content {
-                    debug_println!("❌ [WRITE_FILE] Content required in write_at");
+                    eprintln!("❌ [WRITE_FILE] Content required in write_at");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Content required for write_at".into(),
                     });
                 }
                 if write_request.offset.is_none() {
-                    debug_println!("❌ [WRITE_FILE] Offset required in write_at");
+                    eprintln!("❌ [WRITE_FILE] Offset required in write_at");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Offset required for write_at".into(),
                     });
                 }
                 if (write_request.size as usize) != write_request.data.as_ref().unwrap().len() {
-                    debug_println!("❌ [WRITE_FILE] Size declared ≠ content length (write_at)");
+                    eprintln!("❌ [WRITE_FILE] Size declared ≠ content length (write_at)");
                     return Err(ClientError::Server {
                         status: 400,
                         message: "Declared size does not match content length (write_at)".into(),
@@ -483,7 +475,7 @@ impl RemoteClient {
                 .await
                 .unwrap_or_else(|_| "No response body".to_string());
 
-            debug_println!(
+            eprintln!(
                 "❌ [WRITE_FILE] Errore HTTP {}: {}",
                 status_code, error_body
             );
