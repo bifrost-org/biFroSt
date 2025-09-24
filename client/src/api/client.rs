@@ -11,6 +11,8 @@ use std::time::Duration;
 
 use moka::sync::Cache as MokaCache;
 
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -48,7 +50,7 @@ pub struct RemoteClient {
     timeout: Duration,
     pub path_mounting: String,
     cache_metadata: MokaCache<String, DirectoryListing>,
-    read_buf: MokaCache<String, BitmapReadBuf>,
+    read_buf: MokaCache<String, Arc<Mutex<BitmapReadBuf>>>, // CHANGED
 }
 
 #[derive(Debug, Clone)]
@@ -307,83 +309,81 @@ impl RemoteClient {
     }
 
 
-pub async fn read_file(
-    &self,
-    path: &str,
-    offset: Option<u64>,
-    size: Option<u64>,
-) -> Result<FileContent, ClientError> {
-    let off = offset.unwrap_or(0);
-    let want = size.unwrap_or(READ_PREFETCH);
+    pub async fn read_file(
+        &self,
+        path: &str,
+        offset: Option<u64>,
+        size: Option<u64>,
+    ) -> Result<FileContent, ClientError> {
+        let off = offset.unwrap_or(0);
+        let want = size.unwrap_or(READ_PREFETCH);
 
-    // Recupera o crea bitmap buffer
-    let mut buf = match self.read_buf.get(path) {
-        Some(b) => b,
-        None => {
-            let meta = self.get_file_metadata(path).await?;
-            let file_size = meta.size;
-            if off >= file_size {
-                return Ok(FileContent { data: Vec::new() });
+        // Prendi o crea entry (Arc<Mutex<...>>)
+        let arc_buf = match self.read_buf.get(path) {
+            Some(b) => b,
+            None => {
+                let meta = self.get_file_metadata(path).await?;
+                if off >= meta.size {
+                    return Ok(FileContent { data: Vec::new() });
+                }
+                let nb = Arc::new(Mutex::new(new_bitmap_buf(meta.size)));
+                self.read_buf.insert(path.to_string(), nb.clone());
+                nb
             }
-            if file_size == 0 {
-                let empty = new_bitmap_buf(0);
-                self.read_buf.insert(path.to_string(), empty.clone());
-                return Ok(FileContent { data: Vec::new() });
-            }
+        };
 
-        
-            let nb = new_bitmap_buf(file_size);
-            self.read_buf.insert(path.to_string(), nb.clone());
-            nb
+        // Primo lock
+        let mut buf = arc_buf.lock();
+
+        if off >= buf.size {
+            return Ok(FileContent { data: Vec::new() });
         }
-    };
+        let effective_want = want.min(buf.size - off);
 
-    if off >= buf.size {
-        return Ok(FileContent { data: Vec::new() });
-    }
+        // Tutto già presente
+        if range_present(&buf, off, effective_want) {
+            let end = off + effective_want;
+            return Ok(FileContent {
+                data: buf.data[off as usize .. end as usize].to_vec()
+            });
+        }
 
-    let effective_want = want.min(buf.size - off);
-    if range_present(&buf, off, effective_want) {
-        // Slice diretta
-        let end = off + effective_want;
-        return Ok(FileContent {
+        // Trova primo buco
+        let mut first_missing = off;
+        let end_req = off + effective_want;
+        while first_missing < end_req {
+            if !bit_is_set(&buf, first_missing) { break; }
+            first_missing += 1;
+        }
+
+        // Calcola fetch
+        let base = align_down(first_missing, READ_ALIGN);
+        let target_span = std::cmp::max(READ_PREFETCH, effective_want);
+        let prefetch_to = (first_missing + target_span).min(buf.size);
+        let span = prefetch_to - base;
+
+        // Rilascia lock prima dell'I/O
+        drop(buf);
+        let chunk = self.http_read_range(path, base, span).await?;
+
+        // Rilock e marca
+        let mut buf = arc_buf.lock();
+        if !chunk.is_empty() {
+            mark_bytes(&mut buf, base, &chunk);
+        }
+
+        // Ricostruisci risposta contigua disponibile
+        let mut avail = 0u64;
+        while avail < effective_want {
+            if !bit_is_set(&buf, off + avail) { break; }
+            avail += 1;
+        }
+        let end = off + avail;
+
+        Ok(FileContent {
             data: buf.data[off as usize .. end as usize].to_vec()
-        });
+        })
     }
-
-    // Trova primo byte mancante nell'intervallo
-    let end_req = off + effective_want;
-    let mut first_missing = off;
-    while first_missing < end_req {
-        if !bit_is_set(&buf, first_missing) { break; }
-        first_missing += 1;
-    }
-
-    // Calcola finestra da scaricare
-    let base = align_down(first_missing, READ_ALIGN);
-    let target_span = std::cmp::max(READ_PREFETCH, effective_want);
-    let prefetch_to = (first_missing + target_span).min(buf.size);
-    let span = prefetch_to - base;
-
-    let chunk = self.http_read_range(path, base, span).await?;
-    if !chunk.is_empty() {
-        mark_bytes(&mut buf, base, &chunk);
-        // reinserisci stato aggiornato
-        self.read_buf.insert(path.to_string(), buf.clone());
-    }
-
-    // Riprova a costruire risposta (può essere short se server short-read)
-    let mut available_len = 0u64;
-    while available_len < effective_want {
-        if !bit_is_set(&buf, off + available_len) { break; }
-        available_len += 1;
-    }
-
-    let end = off + available_len;
-    Ok(FileContent {
-        data: buf.data[off as usize .. end as usize].to_vec()
-    })
-}
 
 // ---------------- REPLACE http_read_range (semplificata) ----------------
 async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<u8>, ClientError> {

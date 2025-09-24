@@ -9,6 +9,8 @@ repository = "https://github.com/bifrost-org/biFroSt"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+parking_lot = "0.12"
+
 # FUSE implementation
 fuser = "0.12"
 
