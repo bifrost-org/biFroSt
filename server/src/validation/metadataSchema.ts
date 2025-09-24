@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { FileType, Mode } from "../model/file";
 
-const filePathPattern = /^([^\0\/:*?"<>|]+\/)*[^\0\/:*?"<>|]+$/;
+const filePathPattern = /^\/?([^\/:*?"<>|\r\n]+\/)*([^\/:*?"<>|\r\n]+)$/;
 
 const baseMetadataSchema = z.object({
   newPath: z
