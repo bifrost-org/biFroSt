@@ -36,7 +36,7 @@ pub enum ClientError {
 
 
 const READ_ALIGN: u64 = 4096;
-const READ_PREFETCH: u64 = 8 * 1024 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
+const READ_PREFETCH: u64 = 2 * 1024 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
 
 
 fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
@@ -49,7 +49,6 @@ pub struct RemoteClient {
     pub path_mounting: String,
     cache_metadata: MokaCache<String, DirectoryListing>,
     read_buf: MokaCache<String, BitmapReadBuf>,
-    bitmap: Vec<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,7 +138,6 @@ impl RemoteClient {
                 .time_to_live(Duration::from_secs(3*60)) // TTL breve
                 .max_capacity(512)                   // ~512 buffer attivi
                 .build(),
-            bitmap: vec![],
         }
     }
 

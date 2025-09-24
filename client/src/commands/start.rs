@@ -173,7 +173,6 @@ fn prepare_mount_point(mount_point: &PathBuf) {
 
         println!("🗑️ rmdir {:?}", mount_point);
         let res = std::process::Command::new("rmdir").arg(mount_point).output();
-        println!("{:?}",res);
         if res.is_err() {
             eprintln!("❌ Error in removing existing mount point: {:?}", mount_point);
             std::process::exit(1);
