@@ -1285,42 +1285,28 @@ impl Filesystem for RemoteFileSystem {
     ) {
         let old_filename = match name.to_str() {
             Some(s) => s,
-            None => {
-                eprintln!("❌ [RENAME] Nome file originale non valido: {:?}", name);
-                reply.error(libc::EINVAL);
-                return;
-            }
+            None => { reply.error(libc::EINVAL); return; }
         };
-
         let new_filename = match newname.to_str() {
             Some(s) => s,
-            None => {
-                eprintln!("❌ [RENAME] Nuovo nome file non valido: {:?}", newname);
-                reply.error(libc::EINVAL);
-                return;
-            }
+            None => { reply.error(libc::EINVAL); return; }
         };
 
         if flags != 0 {
-            log::warn!("⚠️ [RENAME] Flags non supportati: {}, procedendo comunque", flags);
+            log::warn!("⚠️ [RENAME] Flags non supportati: {}", flags);
+        }
+        if old_filename == "." || old_filename == ".." || new_filename == "." || new_filename == ".." {
+            reply.error(libc::EINVAL);
+            return;
         }
 
         let old_parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
-            None => {
-                eprintln!("❌ [RENAME] Directory padre originale con inode {} non trovata", parent);
-                reply.error(libc::ENOENT);
-                return;
-            }
+            None => { reply.error(libc::ENOENT); return; }
         };
-
         let new_parent_path = match self.get_path(newparent) {
             Some(p) => p.clone(),
-            None => {
-                eprintln!("❌ [RENAME] Nuova directory padre con inode {} non trovata", newparent);
-                reply.error(libc::ENOENT);
-                return;
-            }
+            None => { reply.error(libc::ENOENT); return; }
         };
 
         let old_path = if old_parent_path == "/" {
@@ -1328,142 +1314,139 @@ impl Filesystem for RemoteFileSystem {
         } else {
             format!("{}/{}", old_parent_path, old_filename)
         };
-
         let new_path = if new_parent_path == "/" {
             format!("/{}", new_filename)
         } else {
             format!("{}/{}", new_parent_path, new_filename)
         };
 
-        if old_path == "/" {
-            log::warn!("⚠️ [RENAME] Tentativo di rinominare directory root");
-            reply.error(libc::EBUSY);
-            return;
-        }
+        if old_path == "/" { reply.error(libc::EBUSY); return; }
+        if old_path == new_path { reply.ok(); return; }
 
-        if
-            old_filename == "." ||
-            old_filename == ".." ||
-            new_filename == "." ||
-            new_filename == ".."
-        {
-            log::warn!("⚠️ [RENAME] Tentativo di rinominare directory speciali");
-            reply.error(libc::EINVAL);
-            return;
-        }
-
-        if old_path == new_path {
-            reply.ok();
-            return;
-        }
-
+        // Runtime
         let rt = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => handle,
+            Ok(h) => h,
             Err(_) => {
-                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-                runtime.handle().clone()
+                let r = tokio::runtime::Runtime::new().expect("rt");
+                r.handle().clone()
             }
         };
 
-        let old_metadata = match
-            rt.block_on(async { self.client.get_file_metadata(&old_path).await })
-        {
-            Ok(metadata) => metadata,
-            Err(ClientError::NotFound { .. }) => {
-                eprintln!("❌ [RENAME] File originale non trovato: {}", old_path);
-                reply.error(libc::ENOENT);
-                return;
-            }
-            Err(e) => {
-                eprintln!("❌ [RENAME] Errore verifica file originale: {}", e);
-                reply.error(libc::EIO);
-                return;
-            }
+        // Metadati sorgente
+        let old_metadata = match rt.block_on(async { self.client.get_file_metadata(&old_path).await }) {
+            Ok(m) => m,
+            Err(ClientError::NotFound { .. }) => { reply.error(libc::ENOENT); return; }
+            Err(_) => { reply.error(libc::EIO); return; }
         };
-        let file_inode = self.path_to_inode.get(&old_path).copied().unwrap_or(0);
-        if
-            let Ok(new_metadata) = rt.block_on(async {
-                self.client.get_file_metadata(&new_path).await
-            })
-        {
-            if old_metadata.kind != new_metadata.kind {
-                if old_metadata.kind == FileKind::Directory {
-                    reply.error(libc::ENOTDIR);
-                } else {
-                    reply.error(libc::EISDIR);
-                }
+
+        // Metadati destinazione (se esiste)
+        let dest_metadata_opt = rt.block_on(async { self.client.get_file_metadata(&new_path).await }).ok();
+        if let Some(dest_md) = &dest_metadata_opt {
+            // Tipi incompatibili
+            if dest_md.kind != old_metadata.kind {
+                reply.error(if old_metadata.kind == FileKind::Directory { libc::ENOTDIR } else { libc::EISDIR });
                 return;
             }
-
-            if new_metadata.kind == FileKind::Directory {
+            // Se directory esistente deve essere vuota
+            if dest_md.kind == FileKind::Directory {
                 match rt.block_on(async { self.client.list_directory(&new_path).await }) {
                     Ok(listing) => {
                         if !listing.files.is_empty() {
-                            log::warn!(
-                                "⚠️ [RENAME] Directory destinazione non vuota: {}",
-                                new_path
-                            );
                             reply.error(libc::ENOTEMPTY);
                             return;
                         }
                     }
-                    Err(e) => {
-                        eprintln!("❌ [RENAME] Errore verifica directory vuota: {}", e);
-                        reply.error(libc::EIO);
-                        return;
-                    }
+                    Err(_) => { reply.error(libc::EIO); return; }
                 }
             }
         }
 
+        // Richiesta rename lato server (riuso write_file)
         let now_iso = chrono::Utc::now().to_rfc3339();
         let rename_request = WriteRequest {
             offset: None,
             path: old_path.clone(),
             new_path: Some(new_path.clone()),
-            size: old_metadata.size, // ✅ Mantieni dimensione originale
-            atime: old_metadata.atime.clone(), // ✅ Mantieni access time
-            mtime: old_metadata.mtime.clone(), // ✅ Mantieni modification time
-            ctime: now_iso.clone(), // ✅ Aggiorna change time
-            crtime: old_metadata.crtime.clone(), // ✅ Mantieni creation time
-            kind: old_metadata.kind, // ✅ Mantieni tipo file
-            ref_path: None, // ✅ Non è symlink operation
-            perm: old_metadata.perm.clone(), // ✅ Mantieni permessi
-            mode: Mode::Write, // ✅ Specifica operazione rename
-            data: None, // ✅ Nessun dato da trasferire
+            size: old_metadata.size,
+            atime: old_metadata.atime.clone(),
+            mtime: old_metadata.mtime.clone(),
+            ctime: now_iso.clone(),
+            crtime: old_metadata.crtime.clone(),
+            kind: old_metadata.kind,
+            ref_path: None,
+            perm: old_metadata.perm.clone(),
+            mode: Mode::Write,
+            data: None,
         };
 
-        let rename_result = rt.block_on(async { self.client.write_file(&rename_request).await });
+        let file_inode = self.path_to_inode.get(&old_path).copied().unwrap_or(0);
 
-        match rename_result {
+        match rt.block_on(async { self.client.write_file(&rename_request).await }) {
             Ok(()) => {
+                // Se esiste destinazione con inode diverso, rimuovi mapping
+                if let Some(&dest_inode) = self.path_to_inode.get(&new_path) {
+                    if dest_inode != file_inode {
+                        self.unregister_inode(dest_inode);
+                    }
+                }
+
                 if file_inode != 0 {
+                    // Aggiorna mapping principale
                     self.inode_to_path.remove(&file_inode);
                     self.path_to_inode.remove(&old_path);
+                    self.inode_to_path.insert(file_inode, new_path.clone());
+                    self.path_to_inode.insert(new_path.clone(), file_inode);
 
-                    if let Some(&dest_inode) = self.path_to_inode.get(&new_path) {
-                        if dest_inode != file_inode {
-                            self.unregister_inode(dest_inode);
+                    // Se directory: aggiorna anche i figli (prefisso)
+                    if old_metadata.kind == FileKind::Directory {
+                        let mut updates = Vec::new();
+                        for (ino, p) in self.inode_to_path.iter() {
+                            if p.starts_with(&old_path) && *ino != file_inode {
+                                // costruisci nuovo path
+                                let suffix = &p[old_path.len()..];
+                                let mut np = new_path.clone();
+                                np.push_str(suffix);
+                                updates.push((*ino, np));
+                            }
+                        }
+                        for (ino, np) in updates {
+                            self.path_to_inode.remove(&self.inode_to_path[&ino]);
+                            self.inode_to_path.insert(ino, np.clone());
+                            self.path_to_inode.insert(np, ino);
                         }
                     }
 
-                    self.inode_to_path.insert(file_inode, new_path.clone());
-                    self.path_to_inode.insert(new_path.clone(), file_inode);
+                    // Aggiorna path negli open_files
+                    for of in self.open_files.values_mut() {
+                        if of.path == old_path {
+                            of.path = new_path.clone();
+                        } else if old_metadata.kind == FileKind::Directory && of.path.starts_with(&old_path) {
+                            // Aggiorna anche open file dentro la directory rinominata
+                            let suffix = &of.path[old_path.len()..];
+                            let mut np = new_path.clone();
+                            np.push_str(suffix);
+                            of.path = np;
+                        }
+                    }
+                } else {
+                    // Non avevi mapping locale: registrane uno nuovo
+                    let new_inode = self.generate_inode();
+                    self.register_inode(new_inode, new_path.clone());
                 }
 
                 reply.ok();
             }
             Err(ClientError::NotFound { .. }) => {
-                eprintln!("❌ [RENAME] File originale non trovato sul server: {}", old_path);
                 reply.error(libc::ENOENT);
             }
-            Err(e) => {
-                eprintln!("❌ [RENAME] Errore rename sul server: {}", e);
+            Err(ClientError::PermissionDenied(_)) => {
+                reply.error(libc::EACCES);
+            }
+            Err(_) => {
                 reply.error(libc::EIO);
             }
         }
     }
-
     fn link(
         &mut self,
         _req: &Request<'_>,
@@ -1620,9 +1603,8 @@ impl Filesystem for RemoteFileSystem {
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
         let path = match self.inode_to_path.get(&ino) {
-            Some(p) => { p.clone() }
+            Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [OPEN] INODE {} NON TROVATO", ino);
                 eprintln!("❌ [OPEN] Inode {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
@@ -1630,101 +1612,137 @@ impl Filesystem for RemoteFileSystem {
         };
 
         let rt = match tokio::runtime::Handle::try_current() {
-            Ok(handle) => { handle }
+            Ok(h) => h,
             Err(_) => {
-                let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-                runtime.handle().clone()
+                let r = tokio::runtime::Runtime::new().expect("rt");
+                r.handle().clone()
             }
         };
 
-        let metadata_result = rt.block_on(async {
-            let result = self.client.get_file_metadata(&path).await;
+        let access_mode = flags & libc::O_ACCMODE;
+        let create_flag = (flags & libc::O_CREAT) != 0;
+        let excl_flag   = (flags & libc::O_EXCL)  != 0;
+        let trunc_flag  = (flags & libc::O_TRUNC) != 0;
 
-            result
-        });
+        // 1. Prova a prendere i metadati
+        let metadata_result = rt.block_on(async { self.client.get_file_metadata(&path).await });
 
         let metadata = match metadata_result {
-            Ok(metadata) => { metadata }
+            Ok(m) => m,
             Err(ClientError::NotFound { .. }) => {
-                eprintln!("❌ [OPEN] FILE NON TROVATO: {}", path);
-                reply.error(libc::ENOENT);
-                return;
+                // Se il file non esiste ed è richiesto O_CREAT → crealo ora (flusso .goutputstream-XXXX)
+                if create_flag {
+                    let now_iso = chrono::Utc::now().to_rfc3339();
+                    let create_req = WriteRequest {
+                        offset: None,
+                        path: path.clone(),
+                        new_path: None,
+                        size: 0,
+                        atime: now_iso.clone(),
+                        mtime: now_iso.clone(),
+                        ctime: now_iso.clone(),
+                        crtime: now_iso,
+                        kind: FileKind::RegularFile,
+                        ref_path: None,
+                        perm: "644".to_string(), // default
+                        mode: Mode::Write,
+                        data: Some(Vec::new()),
+                    };
+                    if let Err(e) = rt.block_on(async { self.client.write_file(&create_req).await }) {
+                        eprintln!("❌ [OPEN] Creazione fallita {}: {}", path, e);
+                        reply.error(libc::EIO);
+                        return;
+                    }
+                    // Recupera subito i metadati appena creati
+                    match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
+                        Ok(m2) => m2,
+                        Err(_) => {
+                            reply.error(libc::EIO);
+                            return;
+                        }
+                    }
+                } else {
+                    // Mancava il file e non c'è O_CREAT
+                    reply.error(libc::ENOENT);
+                    return;
+                }
             }
             Err(e) => {
-                eprintln!("❌ [OPEN] ERRORE METADATA: {}", e);
+                eprintln!("❌ [OPEN] Errore metadati {}: {}", path, e);
                 reply.error(libc::EIO);
                 return;
             }
         };
 
-        match metadata.kind {
-            FileKind::RegularFile => {}
-            FileKind::Symlink => {}
-            FileKind::Directory => {
-                eprintln!("❌ [OPEN] È una directory");
-                reply.error(libc::EISDIR);
-                return;
-            }
-            _ => {
-                eprintln!("❌ [OPEN] Tipo file non supportato: {:?}", metadata.kind);
-                reply.error(libc::EPERM);
-                return;
-            }
-        }
-
-        let access_mode = flags & libc::O_ACCMODE;
-        let open_flags = flags & !libc::O_ACCMODE;
-
-        match access_mode {
-            libc::O_RDONLY => {}
-            libc::O_WRONLY => {}
-            libc::O_RDWR => {}
-            _ => {}
-        }
-
-        if (open_flags & libc::O_APPEND) != 0 {
-        }
-        if (open_flags & libc::O_CREAT) != 0 {
-        }
-        if (open_flags & libc::O_TRUNC) != 0 {
-        }
-
+        // 2. Controllo permessi basico (owner)
         let perms = parse_permissions(&metadata.perm);
-
-        let effective_perms = perms.owner; // Assumiamo owner per semplicità
+        let owner_bits = perms.owner;
 
         match access_mode {
             libc::O_RDONLY => {
-                if (effective_perms & 0o4) == 0 {
-                    eprintln!("❌ [OPEN] Permesso di lettura negato");
+                if (owner_bits & 0o4) == 0 {
                     reply.error(libc::EACCES);
                     return;
                 }
             }
             libc::O_WRONLY => {
-                if (effective_perms & 0o2) == 0 {
-                    eprintln!("❌ [OPEN] Permesso di scrittura negato");
+                if (owner_bits & 0o2) == 0 {
                     reply.error(libc::EACCES);
                     return;
                 }
             }
             libc::O_RDWR => {
-                if (effective_perms & 0o6) != 0o6 {
-                    eprintln!("❌ [OPEN] Permessi lettura/scrittura insufficienti");
+                if (owner_bits & 0o6) != 0o6 {
                     reply.error(libc::EACCES);
                     return;
                 }
             }
             _ => {
-                eprintln!("❌ [OPEN] Modalità di accesso non valida: {:#x}", access_mode);
                 reply.error(libc::EINVAL);
                 return;
             }
         }
 
+        // 3. O_EXCL + O_CREAT su file esistente → errore
+        if create_flag && excl_flag {
+            // se siamo qui vuol dire che metadata esisteva
+            // (caso NotFound sopra lo ha creato)
+            if metadata.size >= 0 {
+                // esiste già
+                // (qualunque condizione reale: in man Linux restituisce EEXIST)
+                reply.error(libc::EEXIST);
+                return;
+            }
+        }
+
+        // 4. O_TRUNC se richiesto e scrivibile
+        if trunc_flag && access_mode != libc::O_RDONLY {
+            let now_iso = chrono::Utc::now().to_rfc3339();
+            let trunc_req = WriteRequest {
+                offset: None,
+                path: path.clone(),
+                new_path: None,
+                size: 0,
+                atime: metadata.atime.clone(),
+                mtime: now_iso.clone(),
+                ctime: now_iso,
+                crtime: metadata.crtime.clone(),
+                kind: metadata.kind,
+                ref_path: metadata.ref_path.clone(),
+                perm: metadata.perm.clone(),
+                mode: Mode::Truncate,
+                data: None,
+            };
+            if let Err(e) = rt.block_on(async { self.client.write_file(&trunc_req).await }) {
+                eprintln!("❌ [OPEN] Truncate fallito {}: {}", path, e);
+                reply.error(libc::EIO);
+                return;
+            }
+        }
+
+        // 5. Registra file handle
         let fh = self.next_fh;
         self.next_fh += 1;
-
         self.open_files.insert(fh, OpenFile {
             path: path.clone(),
             flags,
@@ -1732,12 +1750,10 @@ impl Filesystem for RemoteFileSystem {
             buffer_dirty: false,
         });
 
-        if (open_flags & libc::O_TRUNC) != 0 && access_mode != libc::O_RDONLY {
-        }
-
-        reply.opened(fh, FOPEN_DIRECT_IO);
+        // 6. Risposta (senza FOPEN_DIRECT_IO per permettere page cache kernel)
+        reply.opened(fh, 0);
     }
-
+    
     fn read(
         &mut self,
         _req: &Request<'_>,
