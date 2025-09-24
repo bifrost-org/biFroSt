@@ -1735,7 +1735,7 @@ impl Filesystem for RemoteFileSystem {
         if (open_flags & libc::O_TRUNC) != 0 && access_mode != libc::O_RDONLY {
         }
 
-        reply.opened(fh, FOPEN_DIRECT_IO);
+        reply.opened(fh, 0);
     }
 
     fn read(
