@@ -52,7 +52,7 @@ pub struct MetaFile {
     pub ref_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
 #[serde(rename_all = "snake_case")] // ← Aggiunto per gestire snake_case
 pub enum FileKind {
     #[serde(rename = "regular_file")]
