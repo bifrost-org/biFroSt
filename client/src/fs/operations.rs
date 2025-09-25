@@ -633,7 +633,7 @@ impl Filesystem for RemoteFileSystem {
                 return;
             }
         };
-        println!("🔗 [READLINK] Path : '{}'", path);
+
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -648,7 +648,7 @@ impl Filesystem for RemoteFileSystem {
                 println!("Metadata: {:?}", metadata);
                 match (metadata.kind, &metadata.ref_path) {
                     (FileKind::Symlink, Some(target)) if !target.is_empty() => {
-                        println!("🔗 [READLINK] Target : '{}'", target);
+    
 
                         reply.data(target.as_bytes());
                     }
@@ -1977,8 +1977,6 @@ impl Filesystem for RemoteFileSystem {
         } else if effective_offset == 0 && (data_len as u64) >= current_file_size {
             (Mode::Write, data.to_vec())
         } else {
-            println!("🔧 [WRITE] === MODALITÀ WRITE-AT ===");
-
             (Mode::Write, data.to_vec())
         };
 
