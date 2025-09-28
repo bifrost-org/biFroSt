@@ -1,18 +1,24 @@
 use std::path::PathBuf;
 
-use fuser::{ mount2, MountOption };
 use bifrost::{
-    api::client::RemoteClient,
-    config::settings::Config,
-    fs::operations::RemoteFileSystem,
+    api::client::RemoteClient, config::settings::Config, fs::operations::RemoteFileSystem,
     util::auth::UserKeys,
 };
+use fuser::{mount2, MountOption};
 
 pub async fn run(enable_service: bool) {
     let config = match Config::from_file() {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let user_keys = match UserKeys::load_from_files() {
+        Ok(keys) => keys,
+        Err(e) => {
+            eprintln!("\n{}.\nRun `bifrost register` to register a new user.", e);
             std::process::exit(1);
         }
     };
@@ -30,8 +36,6 @@ pub async fn run(enable_service: bool) {
     println!("📁 Mount point: {:?}", config.mount_point);
 
     prepare_mount_point(&config.mount_point);
-
-    let user_keys = UserKeys::load_from_files().expect("User keys not found");
 
     let filesystem = RemoteFileSystem::new(RemoteClient::new(&config, Some(user_keys)));
     println!("✅ Filesystem initialized");
@@ -104,28 +108,23 @@ WantedBy=default.target
         work_dir = work_dir
     );
 
-    std::fs
-        ::write(&tmp_path, content.as_bytes())
+    std::fs::write(&tmp_path, content.as_bytes())
         .map_err(|e| format!("write temp unit failed {}: {}", tmp_path, e))?;
-    let mut perms = std::fs
-        ::metadata(&tmp_path)
+    let mut perms = std::fs::metadata(&tmp_path)
         .map_err(|e| format!("stat tmp file failed: {}", e))?
         .permissions();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         perms.set_mode(0o644);
-        std::fs
-            ::set_permissions(&tmp_path, perms)
+        std::fs::set_permissions(&tmp_path, perms)
             .map_err(|e| format!("set_permissions failed: {}", e))?;
     }
 
-    std::fs
-        ::rename(&tmp_path, &unit_path)
+    std::fs::rename(&tmp_path, &unit_path)
         .map_err(|e| format!("rename unit failed {} -> {}: {}", tmp_path, unit_path, e))?;
 
-    let status = std::process::Command
-        ::new("systemctl")
+    let status = std::process::Command::new("systemctl")
         .arg("--user")
         .arg("daemon-reload")
         .status()
@@ -133,8 +132,7 @@ WantedBy=default.target
     if !status.success() {
         return Err("systemctl --user daemon-reload failed".into());
     }
-    let status = std::process::Command
-        ::new("systemctl")
+    let status = std::process::Command::new("systemctl")
         .arg("--user")
         .arg("enable")
         .arg("--now")
@@ -146,7 +144,6 @@ WantedBy=default.target
     }
     Ok(())
 }
-
 
 fn prepare_mount_point(mount_point: &PathBuf) {
     println!("🔍 Preparing mount point: {:?}", mount_point);
@@ -170,11 +167,15 @@ fn prepare_mount_point(mount_point: &PathBuf) {
     if mount_point_exists {
         println!("📁 Mount point found in parent directory");
 
-
         println!("🗑️ rmdir {:?}", mount_point);
-        let res = std::process::Command::new("rmdir").arg(mount_point).output();
+        let res = std::process::Command::new("rmdir")
+            .arg(mount_point)
+            .output();
         if res.is_err() {
-            eprintln!("❌ Error in removing existing mount point: {:?}", mount_point);
+            eprintln!(
+                "❌ Error in removing existing mount point: {:?}",
+                mount_point
+            );
             std::process::exit(1);
         }
     } else {

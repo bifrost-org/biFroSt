@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use moka::sync::Cache as MokaCache;
 
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -35,13 +35,12 @@ pub enum ClientError {
     Serialization(#[from] serde_json::Error),
 }
 
-
-
 const READ_ALIGN: u64 = 4096;
 const READ_PREFETCH: u64 = 2 * 1024 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
 
-
-fn align_down(v: u64, a: u64) -> u64 { v - (v % a) }
+fn align_down(v: u64, a: u64) -> u64 {
+    v - (v % a)
+}
 
 pub struct RemoteClient {
     base_url: String,
@@ -56,9 +55,9 @@ pub struct RemoteClient {
 #[derive(Debug, Clone)]
 struct BitmapReadBuf {
     size: u64,
-    filled: u64,          // quanti byte già marcati presenti
-    data: Vec<u8>,        // dimensione = size (solo bytes già scaricati validi dove bitmap=1)
-    bitmap: Vec<u64>,     // bit per byte (1 = presente)
+    filled: u64,      // quanti byte già marcati presenti
+    data: Vec<u8>,    // dimensione = size (solo bytes già scaricati validi dove bitmap=1)
+    bitmap: Vec<u64>, // bit per byte (1 = presente)
 }
 
 fn new_bitmap_buf(size: u64) -> BitmapReadBuf {
@@ -91,9 +90,13 @@ fn set_bit(bm: &mut BitmapReadBuf, idx: u64) {
 
 // Controlla se intervallo [start, start+len) è tutto presente
 fn range_present(bm: &BitmapReadBuf, start: u64, len: u64) -> bool {
-    if len == 0 { return true; }
+    if len == 0 {
+        return true;
+    }
     let end = start + len;
-    if end > bm.size { return false; }
+    if end > bm.size {
+        return false;
+    }
     let mut i = start;
     while i < end {
         if !bit_is_set(bm, i) {
@@ -108,7 +111,9 @@ fn range_present(bm: &BitmapReadBuf, start: u64, len: u64) -> bool {
 fn mark_bytes(bm: &mut BitmapReadBuf, start: u64, bytes: &[u8]) {
     let mut idx = start;
     for &b in bytes {
-        if idx >= bm.size { break; }
+        if idx >= bm.size {
+            break;
+        }
         // scrivi sempre (idempotente su già presenti)
         bm.data[idx as usize] = b;
         set_bit(bm, idx);
@@ -133,12 +138,12 @@ impl RemoteClient {
             timeout: config.timeout,
             path_mounting: config.mount_point.to_string_lossy().to_string(),
             cache_metadata: MokaCache::builder()
-                .time_to_live(Duration::from_secs(3*60))
-                .time_to_idle(Duration::from_secs(3*60))
+                .time_to_live(Duration::from_secs(3 * 60))
+                .time_to_idle(Duration::from_secs(3 * 60))
                 .build(),
             read_buf: MokaCache::builder()
-                .time_to_live(Duration::from_secs(3*60)) // TTL breve
-                .max_capacity(512)                   // ~512 buffer attivi
+                .time_to_live(Duration::from_secs(3 * 60)) // TTL breve
+                .max_capacity(512) // ~512 buffer attivi
                 .build(),
         }
     }
@@ -156,7 +161,6 @@ impl RemoteClient {
     fn build_url(&self, path: &str) -> String {
         format!("{}{}", self.base_url.trim_end_matches('/'), path)
     }
-
 
     async fn handle_empty_response(&self, response: reqwest::Response) -> Result<(), ClientError> {
         let status = response.status();
@@ -247,17 +251,14 @@ impl RemoteClient {
     pub async fn list_directory(&self, path: &str) -> Result<DirectoryListing, ClientError> {
         let route_path = self.build_path("/list", Some(path));
         let url = self.build_url(&route_path);
-        
-        
+
         let headers = self.get_headers("GET", &route_path, None, None);
-        
+
         match self.cache_metadata.get(path) {
             Some(cached_response) => {
                 return Ok(cached_response.clone());
             }
-            None => {
-                
-            }
+            None => {}
         }
 
         let response = match self
@@ -281,7 +282,7 @@ impl RemoteClient {
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            
+
             return Err(match status_code {
                 404 => ClientError::NotFound {
                     path: path.to_string(),
@@ -303,11 +304,11 @@ impl RemoteClient {
 
         let directory_listing = DirectoryListing { files };
 
-        self.cache_metadata.insert(path.to_string(), directory_listing.clone());
+        self.cache_metadata
+            .insert(path.to_string(), directory_listing.clone());
 
         Ok(directory_listing)
     }
-
 
     pub async fn read_file(
         &self,
@@ -333,7 +334,7 @@ impl RemoteClient {
         };
 
         // Primo lock
-        let mut buf = arc_buf.lock();
+        let buf = arc_buf.lock();
 
         if off >= buf.size {
             return Ok(FileContent { data: Vec::new() });
@@ -344,7 +345,7 @@ impl RemoteClient {
         if range_present(&buf, off, effective_want) {
             let end = off + effective_want;
             return Ok(FileContent {
-                data: buf.data[off as usize .. end as usize].to_vec()
+                data: buf.data[off as usize..end as usize].to_vec(),
             });
         }
 
@@ -352,7 +353,9 @@ impl RemoteClient {
         let mut first_missing = off;
         let end_req = off + effective_want;
         while first_missing < end_req {
-            if !bit_is_set(&buf, first_missing) { break; }
+            if !bit_is_set(&buf, first_missing) {
+                break;
+            }
             first_missing += 1;
         }
 
@@ -375,50 +378,60 @@ impl RemoteClient {
         // Ricostruisci risposta contigua disponibile
         let mut avail = 0u64;
         while avail < effective_want {
-            if !bit_is_set(&buf, off + avail) { break; }
+            if !bit_is_set(&buf, off + avail) {
+                break;
+            }
             avail += 1;
         }
         let end = off + avail;
 
         Ok(FileContent {
-            data: buf.data[off as usize .. end as usize].to_vec()
+            data: buf.data[off as usize..end as usize].to_vec(),
         })
     }
 
-// ---------------- REPLACE http_read_range (semplificata) ----------------
-async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<u8>, ClientError> {
-    let route_path = self.build_path("/files", Some(path));
-    let url = self.build_url(&route_path);
+    // ---------------- REPLACE http_read_range (semplificata) ----------------
+    async fn http_read_range(
+        &self,
+        path: &str,
+        base: u64,
+        span: u64,
+    ) -> Result<Vec<u8>, ClientError> {
+        let route_path = self.build_path("/files", Some(path));
+        let url = self.build_url(&route_path);
 
-    let range_value = format!("bytes={}-{}", base, base + span.saturating_sub(1));
-    let mut headers = self.get_headers("GET", &route_path, Some(&range_value), None);
-    headers.insert("Range", range_value.parse().expect("Invalid Range header"));
+        let range_value = format!("bytes={}-{}", base, base + span.saturating_sub(1));
+        let mut headers = self.get_headers("GET", &route_path, Some(&range_value), None);
+        headers.insert("Range", range_value.parse().expect("Invalid Range header"));
 
-    let response = self
-        .http_client
-        .get(&url)
-        .headers(headers)
-        .timeout(self.timeout)
-        .send()
-        .await
-        .map_err(ClientError::Http)?;
+        let response = self
+            .http_client
+            .get(&url)
+            .headers(headers)
+            .timeout(self.timeout)
+            .send()
+            .await
+            .map_err(ClientError::Http)?;
 
-    let status = response.status().as_u16();
-    if status == 206 || status == 200 {
-        // 206: range rispettato; 200: server può aver ignorato Range (file piccolo) -> va bene
-        let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
-        Ok(data)
-    } else if status == 416 {
-        Ok(Vec::new()) // oltre EOF
-    } else {
-        let message = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        Err(self.map_http_error(status, message))
+        let status = response.status().as_u16();
+        if status == 206 || status == 200 {
+            // 206: range rispettato; 200: server può aver ignorato Range (file piccolo) -> va bene
+            let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
+            Ok(data)
+        } else if status == 416 {
+            Ok(Vec::new()) // oltre EOF
+        } else {
+            let message = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            Err(self.map_http_error(status, message))
+        }
     }
-}
 
     pub async fn write_file(&self, write_request: &WriteRequest) -> Result<(), ClientError> {
-        
-        self.cache_metadata.invalidate(&get_parent_path(&write_request.path));
+        self.cache_metadata
+            .invalidate(&get_parent_path(&write_request.path));
         self.read_buf.invalidate(&write_request.path);
 
         let route_path = self.build_path("/files", Some(&write_request.path));
@@ -444,7 +457,6 @@ async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<
             .unwrap_or(false);
         match write_request.mode {
             Mode::Write => {
-
                 if has_content
                     && (write_request.size as usize) != write_request.data.as_ref().unwrap().len()
                 {
@@ -494,11 +506,7 @@ async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<
                     });
                 }
             }
-            Mode::Truncate => {
-                if has_content {
-                    
-                }
-            }
+            Mode::Truncate => if has_content {},
         }
 
         let effective_size: u64 = match write_request.mode {
@@ -514,14 +522,11 @@ async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<
 
         let send_data: Vec<u8> = match write_request.kind {
             FileKind::Symlink | FileKind::Hardlink => {
-                if has_content {
-                    
-                }
+                if has_content {}
                 Vec::new()
             }
             _ => write_request.data.clone().unwrap_or_default(),
         };
-
 
         let mut metadata_map = serde_json::Map::new();
         metadata_map.insert("size".to_string(), json!(effective_size));
@@ -587,7 +592,7 @@ async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<
                     .mime_str("application/octet-stream")
                     .map_err(ClientError::Http)?,
             );
-        } 
+        }
 
         let response = self
             .http_client
@@ -612,16 +617,9 @@ async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<
             );
 
             if status_code == 400 || status_code == 404 {
-                
-                
-
                 if let Some(data) = &write_request.data {
-                    
-                    if data.len() <= 100 {
-                        
-                    }
+                    if data.len() <= 100 {}
                 } else {
-                    
                 }
             }
 
@@ -645,15 +643,12 @@ async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<
             });
         }
 
-
-
         self.handle_empty_response(response).await
     }
 
     pub async fn create_directory(&self, path: &str) -> Result<(), ClientError> {
         let route_path = self.build_path("/mkdir", Some(path));
         let url = self.build_url(&route_path);
-        
 
         self.cache_metadata.invalidate(&get_parent_path(&path)); //invalidate the father entries
         self.read_buf.invalidate(path);
@@ -670,7 +665,7 @@ async fn http_read_range(&self, path: &str, base: u64, span: u64) -> Result<Vec<
         let url = self.build_url(&route_path);
 
         self.cache_metadata.invalidate(&get_parent_path(&path));
-self.read_buf.invalidate(path);
+        self.read_buf.invalidate(path);
 
         let headers = self.get_headers("DELETE", &route_path, None, None);
 
