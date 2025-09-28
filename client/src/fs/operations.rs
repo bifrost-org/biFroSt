@@ -642,7 +642,6 @@ impl Filesystem for RemoteFileSystem {
 
         match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
             Ok(metadata) => {
-                println!("Metadata: {:?}", metadata);
                 match (metadata.kind, &metadata.ref_path) {
                     (FileKind::Symlink, Some(target)) if !target.is_empty() => {
                         reply.data(target.as_bytes());
