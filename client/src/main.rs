@@ -25,7 +25,7 @@ enum Commands {
     Start {
         #[arg(long = "detached", short = 'd')]
         detached: bool,
-        #[arg(long = "enable-autorun", short ='e')]
+        #[arg(long = "enable-autorun", short = 'e')]
         enable_autorun: bool,
     },
     Stop {
@@ -34,25 +34,18 @@ enum Commands {
     },
 }
 
-
 fn main() {
     let cli = Cli::parse();
-
-
 
     if let Commands::Start { detached: true, .. } = &cli.command {
         let cwd = std::env::current_dir().expect("cannot get current dir");
 
-        let daemonize = Daemonize::new()
-            .working_directory(&cwd);
-
+        let daemonize = Daemonize::new().working_directory(&cwd);
 
         if let Err(e) = daemonize.start() {
-            eprintln!("daemonize failed: {}", e); // visibile sul terminale
+            eprintln!("daemonize failed: {}", e);
             std::process::exit(1);
         }
-
-
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -68,8 +61,10 @@ fn main() {
             Commands::Register => {
                 commands::register::run().await;
             }
-            Commands::Start { detached, enable_autorun } => {
-                println!("entering start::run (detached={}) pid={}", detached, std::process::id());
+            Commands::Start {
+                detached,
+                enable_autorun,
+            } => {
                 commands::start::run(enable_autorun).await;
             }
             Commands::Stop { disable_autorun } => {

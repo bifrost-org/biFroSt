@@ -1,24 +1,17 @@
 #![allow(warnings)]
 
-use crate::api::client::{ ClientError, RemoteClient };
+use crate::api::client::{ClientError, RemoteClient};
 use crate::api::models::*;
-use crate::fs::attributes::{ self, new_directory_attr, new_file_attr };
+use crate::fs::attributes::{self, new_directory_attr, new_file_attr};
 use fuser::consts::FOPEN_DIRECT_IO;
 use fuser::{
-    FileType,
-    Filesystem,
-    ReplyAttr,
-    ReplyData,
-    ReplyDirectory,
-    ReplyEntry,
-    ReplyOpen,
-    Request,
+    FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyOpen, Request,
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::time::{ Duration, SystemTime };
+use std::time::{Duration, SystemTime};
 
-const STREAM_WRITE: usize = 4 * 1024 * 1024; //4MB
+const STREAM_WRITE: usize = 4 * 1024 * 1024; // 4MB
 pub struct RemoteFileSystem {
     inode_to_path: HashMap<u64, String>,
     path_to_inode: HashMap<String, u64>,
@@ -50,7 +43,7 @@ struct OpenFile {
     path: String,
     flags: i32,
     write_buffer: Vec<u8>,
-    buffer_dirty: bool, // indica se il buffer va flushato
+    buffer_dirty: bool, // points out if the buffer must be flushed
 }
 
 struct Permissions {
@@ -61,18 +54,16 @@ struct Permissions {
 
 fn parse_permissions(perm_str: &str) -> Permissions {
     match u32::from_str_radix(perm_str, 8) {
-        Ok(perms) =>
-            Permissions {
-                owner: (perms >> 6) & 0o7,
-                group: (perms >> 3) & 0o7,
-                other: perms & 0o7,
-            },
-        Err(_) =>
-            Permissions {
-                owner: 0o6, // Default read+write
-                group: 0o4, // Default read
-                other: 0o4, // Default read
-            },
+        Ok(perms) => Permissions {
+            owner: (perms >> 6) & 0o7,
+            group: (perms >> 3) & 0o7,
+            other: perms & 0o7,
+        },
+        Err(_) => Permissions {
+            owner: 0o6, // Default read+write
+            group: 0o4, // Default read
+            other: 0o4, // Default read
+        },
     }
 }
 
@@ -89,7 +80,7 @@ impl RemoteFileSystem {
         let mut fs = Self {
             inode_to_path: HashMap::new(),
             path_to_inode: HashMap::new(),
-            next_inode: 2, // 1 è riservato per root
+            next_inode: 2, // 1 is reserved for root
             client,
             open_files: HashMap::new(),
             next_fh: 1,
@@ -128,10 +119,8 @@ impl RemoteFileSystem {
         if let Some(inode) = self.path_to_inode.remove(path) {
             if let Some(current) = self.inode_to_path.get(&inode).cloned() {
                 if current == path {
-                    if
-                        let Some((alt_path, _)) = self.path_to_inode
-                            .iter()
-                            .find(|(_, &ino)| ino == inode)
+                    if let Some((alt_path, _)) =
+                        self.path_to_inode.iter().find(|(_, &ino)| ino == inode)
                     {
                         self.inode_to_path.insert(inode, alt_path.clone());
                     } else {
@@ -169,10 +158,10 @@ impl Filesystem for RemoteFileSystem {
     fn init(
         &mut self,
         _req: &Request<'_>,
-        _config: &mut fuser::KernelConfig
+        _config: &mut fuser::KernelConfig,
     ) -> Result<(), libc::c_int> {
-        let _ = _config.set_max_write(1024 * 1024); // Buffer scrittura 1MB
-        let _ = _config.set_max_readahead(1024 * 1024); // Buffer lettura anticipata 1MB
+        let _ = _config.set_max_write(1024 * 1024);
+        let _ = _config.set_max_readahead(1024 * 1024);
 
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -181,15 +170,13 @@ impl Filesystem for RemoteFileSystem {
                 runtime.handle().clone()
             }
         };
-        match
-            rt.block_on(async {
-                match self.client.get_file_metadata("/").await {
-                    Ok(_) => Ok(()),
-                    Err(ClientError::NotFound { .. }) => Ok(()), // È ok se "/" non esiste come file
-                    Err(e) => Err(e),
-                }
-            })
-        {
+        match rt.block_on(async {
+            match self.client.get_file_metadata("/").await {
+                Ok(_) => Ok(()),
+                Err(ClientError::NotFound { .. }) => Ok(()),
+                Err(e) => Err(e),
+            }
+        }) {
             Ok(_) => {
                 let _ = rt.block_on(async {
                     if let Ok(listing) = self.client.list_directory("/").await {
@@ -204,7 +191,7 @@ impl Filesystem for RemoteFileSystem {
 
                 Ok(())
             }
-            Err(e) => { Err(libc::EIO) }
+            Err(e) => Err(libc::EIO),
         }
     }
 
@@ -254,14 +241,14 @@ impl Filesystem for RemoteFileSystem {
                 let grandparent_path = if parent_path == "/" {
                     "/".to_string()
                 } else {
-                    std::path::Path
-                        ::new(&parent_path)
+                    std::path::Path::new(&parent_path)
                         .parent()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or("/".to_string())
                 };
 
-                let grandparent_ino = self.path_to_inode
+                let grandparent_ino = self
+                    .path_to_inode
                     .get(&grandparent_path)
                     .copied()
                     .unwrap_or(1);
@@ -276,7 +263,10 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(path) => path.clone(),
             None => {
-                eprintln!("❌ [LOOKUP] Directory padre con inode {} non trovata", parent);
+                eprintln!(
+                    "❌ [LOOKUP] Directory padre con inode {} non trovata",
+                    parent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -325,9 +315,8 @@ impl Filesystem for RemoteFileSystem {
                 runtime.handle().clone()
             }
         };
-        let metadata_result = rt.block_on(async {
-            self.client.get_file_metadata(&full_path).await
-        });
+        let metadata_result =
+            rt.block_on(async { self.client.get_file_metadata(&full_path).await });
 
         match metadata_result {
             Ok(metadata) => {
@@ -361,7 +350,7 @@ impl Filesystem for RemoteFileSystem {
         }
 
         let path = match self.inode_to_path.get(&ino) {
-            Some(p) => { p.clone() }
+            Some(p) => p.clone(),
             None => {
                 reply.error(libc::ENOENT);
                 return;
@@ -409,10 +398,9 @@ impl Filesystem for RemoteFileSystem {
         _chgtime: Option<SystemTime>,
         _bkuptime: Option<SystemTime>,
         flags: Option<u32>,
-        reply: ReplyAttr
+        reply: ReplyAttr,
     ) {
-        if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {
-        }
+        if _atime.is_some() || _mtime.is_some() || _ctime.is_some() {}
 
         if ino == 1 {
             log::warn!("⚠️ [SETATTR] Tentativo di modificare directory root");
@@ -437,21 +425,23 @@ impl Filesystem for RemoteFileSystem {
             }
         };
 
-        let current_metadata = match
-            rt.block_on(async { self.client.get_file_metadata(&path).await })
-        {
-            Ok(metadata) => metadata,
-            Err(ClientError::NotFound { .. }) => {
-                eprintln!("❌ [SETATTR] File non trovato sul server: {}", path);
-                reply.error(libc::ENOENT);
-                return;
-            }
-            Err(e) => {
-                eprintln!("❌ [SETATTR] Errore recupero metadati per '{}': {}", path, e);
-                reply.error(libc::EIO);
-                return;
-            }
-        };
+        let current_metadata =
+            match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
+                Ok(metadata) => metadata,
+                Err(ClientError::NotFound { .. }) => {
+                    eprintln!("❌ [SETATTR] File non trovato sul server: {}", path);
+                    reply.error(libc::ENOENT);
+                    return;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "❌ [SETATTR] Errore recupero metadati per '{}': {}",
+                        path, e
+                    );
+                    reply.error(libc::EIO);
+                    return;
+                }
+            };
 
         if let Some(new_size) = size {
             match current_metadata.kind {
@@ -473,44 +463,52 @@ impl Filesystem for RemoteFileSystem {
             let now_iso = chrono::Utc::now().to_rfc3339();
 
             let operation_result = if new_size < current_size {
-                rt.block_on(async { self.client.write_file(
-                        &(WriteRequest {
-                            offset: None,
-                            path: path.clone(),
-                            new_path: None,
-                            size: new_size,
-                            atime: now_iso.clone(),
-                            mtime: now_iso.clone(),
-                            ctime: now_iso.clone(),
-                            crtime: current_metadata.crtime.clone(),
-                            kind: current_metadata.kind,
-                            ref_path: None,
-                            perm: current_metadata.perm.clone(),
-                            mode: Mode::Truncate,
-                            data: None,
-                        })
-                    ).await })
+                rt.block_on(async {
+                    self.client
+                        .write_file(
+                            &(WriteRequest {
+                                offset: None,
+                                path: path.clone(),
+                                new_path: None,
+                                size: new_size,
+                                atime: now_iso.clone(),
+                                mtime: now_iso.clone(),
+                                ctime: now_iso.clone(),
+                                crtime: current_metadata.crtime.clone(),
+                                kind: current_metadata.kind,
+                                ref_path: None,
+                                perm: current_metadata.perm.clone(),
+                                mode: Mode::Truncate,
+                                data: None,
+                            }),
+                        )
+                        .await
+                })
             } else {
                 let padding_size = new_size - current_size;
                 let padding_data = vec![0u8; padding_size as usize];
 
-                rt.block_on(async { self.client.write_file(
-                        &(WriteRequest {
-                            offset: None,
-                            path: path.clone(),
-                            new_path: None,
-                            size: padding_size, // ← Size del padding da aggiungere
-                            atime: now_iso.clone(),
-                            mtime: now_iso.clone(),
-                            ctime: now_iso.clone(),
-                            crtime: current_metadata.crtime.clone(),
-                            kind: current_metadata.kind,
-                            ref_path: None,
-                            perm: current_metadata.perm.clone(),
-                            mode: Mode::Append, // ← Append i null bytes alla fine
-                            data: Some(padding_data),
-                        })
-                    ).await })
+                rt.block_on(async {
+                    self.client
+                        .write_file(
+                            &(WriteRequest {
+                                offset: None,
+                                path: path.clone(),
+                                new_path: None,
+                                size: padding_size,
+                                atime: now_iso.clone(),
+                                mtime: now_iso.clone(),
+                                ctime: now_iso.clone(),
+                                crtime: current_metadata.crtime.clone(),
+                                kind: current_metadata.kind,
+                                ref_path: None,
+                                perm: current_metadata.perm.clone(),
+                                mode: Mode::Append,
+                                data: Some(padding_data),
+                            }),
+                        )
+                        .await
+                })
             };
 
             match operation_result {
@@ -522,8 +520,8 @@ impl Filesystem for RemoteFileSystem {
                     let error_code = match e {
                         ClientError::NotFound { .. } => libc::ENOENT,
                         ClientError::PermissionDenied(_) => libc::EPERM,
-                        ClientError::Server { status: 413, .. } => libc::EFBIG, // File troppo grande
-                        ClientError::Server { status: 507, .. } => libc::ENOSPC, // Spazio insufficiente
+                        ClientError::Server { status: 413, .. } => libc::EFBIG, // File too big
+                        ClientError::Server { status: 507, .. } => libc::ENOSPC, // No space left on device
                         _ => libc::EIO,
                     };
                     reply.error(error_code);
@@ -540,16 +538,16 @@ impl Filesystem for RemoteFileSystem {
                 offset: None,
                 path: path.clone(),
                 new_path: None,
-                size: current_metadata.size, // Mantieni dimensione
-                atime: current_metadata.atime.clone(), // Mantieni access time
-                mtime: current_metadata.mtime.clone(), // Mantieni modification time
-                ctime: now_iso, // Aggiorna change time (metadati cambiati)
-                crtime: current_metadata.crtime.clone(), // Mantieni creation time
-                kind: current_metadata.kind, // Mantieni tipo file
+                size: current_metadata.size,
+                atime: current_metadata.atime.clone(),
+                mtime: current_metadata.mtime.clone(),
+                ctime: now_iso,
+                crtime: current_metadata.crtime.clone(),
+                kind: current_metadata.kind,
                 ref_path: None,
-                perm: new_permissions, // Nuovi permessi
-                mode: Mode::Write, // Modalità metadata-only
-                data: None, // Nessun contenuto, solo metadati
+                perm: new_permissions,
+                mode: Mode::Write,
+                data: None,
             };
 
             match rt.block_on(async { self.client.write_file(&chmod_request).await }) {
@@ -634,7 +632,6 @@ impl Filesystem for RemoteFileSystem {
             }
         };
 
-
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
             Err(_) => {
@@ -648,8 +645,6 @@ impl Filesystem for RemoteFileSystem {
                 println!("Metadata: {:?}", metadata);
                 match (metadata.kind, &metadata.ref_path) {
                     (FileKind::Symlink, Some(target)) if !target.is_empty() => {
-    
-
                         reply.data(target.as_bytes());
                     }
                     (FileKind::Symlink, _) => {
@@ -688,7 +683,7 @@ impl Filesystem for RemoteFileSystem {
         mode: u32,
         umask: u32,
         rdev: u32,
-        reply: ReplyEntry
+        reply: ReplyEntry,
     ) {
         let filename = match name.to_str() {
             Some(s) => s,
@@ -702,7 +697,10 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [MKNOD] Directory padre con inode {} non trovata", parent);
+                eprintln!(
+                    "❌ [MKNOD] Directory padre con inode {} non trovata",
+                    parent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -727,9 +725,8 @@ impl Filesystem for RemoteFileSystem {
                 let rt = match tokio::runtime::Handle::try_current() {
                     Ok(handle) => handle,
                     Err(_) => {
-                        let runtime = tokio::runtime::Runtime
-                            ::new()
-                            .expect("Failed to create runtime");
+                        let runtime =
+                            tokio::runtime::Runtime::new().expect("Failed to create runtime");
                         runtime.handle().clone()
                     }
                 };
@@ -738,30 +735,28 @@ impl Filesystem for RemoteFileSystem {
                     offset: None,
                     path: full_path.clone(),
                     new_path: None,
-                    size: 0, // ✅ NON Some(0)
+                    size: 0,
                     atime: chrono::Utc::now().to_rfc3339(),
                     mtime: chrono::Utc::now().to_rfc3339(),
                     ctime: chrono::Utc::now().to_rfc3339(),
                     crtime: chrono::Utc::now().to_rfc3339(),
-                    kind: FileKind::RegularFile, // ✅ Specifica tipo file
-                    ref_path: None, // ✅ Non è un link
-                    perm: (mode & 0o777 & !(umask & 0o777)).to_string(), // ✅ NON permissions_octal
-                    mode: Mode::Write, // ✅ Aggiungi mode
-                    data: Some(Vec::new()), // ✅ File vuoto
+                    kind: FileKind::RegularFile,
+                    ref_path: None,
+                    perm: (mode & 0o777 & !(umask & 0o777)).to_string(),
+                    mode: Mode::Write,
+                    data: Some(Vec::new()),
                 };
 
-                let create_result = rt.block_on(async {
-                    self.client.write_file(&write_request).await
-                });
+                let create_result =
+                    rt.block_on(async { self.client.write_file(&write_request).await });
 
                 match create_result {
                     Ok(()) => {
                         let new_inode = self.generate_inode();
                         self.register_inode(new_inode, full_path.clone());
 
-                        let metadata_result = rt.block_on(async {
-                            self.client.get_file_metadata(&full_path).await
-                        });
+                        let metadata_result =
+                            rt.block_on(async { self.client.get_file_metadata(&full_path).await });
 
                         match metadata_result {
                             Ok(metadata) => {
@@ -770,7 +765,10 @@ impl Filesystem for RemoteFileSystem {
                                 reply.entry(&ttl, &attr, 0);
                             }
                             Err(e) => {
-                                eprintln!("❌ [MKNOD] Errore recupero metadati dopo creazione: {}", e);
+                                eprintln!(
+                                    "❌ [MKNOD] Errore recupero metadati dopo creazione: {}",
+                                    e
+                                );
                                 let effective_perms = mode & 0o777 & !(umask & 0o777);
                                 let attr = new_file_attr(new_inode, 0, effective_perms);
                                 let ttl = Duration::from_secs(1);
@@ -825,7 +823,7 @@ impl Filesystem for RemoteFileSystem {
         name: &OsStr,
         mode: u32,
         umask: u32,
-        reply: ReplyEntry
+        reply: ReplyEntry,
     ) {
         let dirname = match name.to_str() {
             Some(s) => s,
@@ -839,7 +837,10 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [MKDIR] Directory padre con inode {} non trovata", parent);
+                eprintln!(
+                    "❌ [MKDIR] Directory padre con inode {} non trovata",
+                    parent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -875,9 +876,8 @@ impl Filesystem for RemoteFileSystem {
                 let new_inode = self.generate_inode();
                 self.register_inode(new_inode, full_path.clone());
 
-                let metadata_result = rt.block_on(async {
-                    self.client.get_file_metadata(&full_path).await
-                });
+                let metadata_result =
+                    rt.block_on(async { self.client.get_file_metadata(&full_path).await });
 
                 match metadata_result {
                     Ok(metadata) => {
@@ -916,7 +916,10 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [UNLINK] Directory padre con inode {} non trovata", parent);
+                eprintln!(
+                    "❌ [UNLINK] Directory padre con inode {} non trovata",
+                    parent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -935,9 +938,8 @@ impl Filesystem for RemoteFileSystem {
                 let rt = match tokio::runtime::Handle::try_current() {
                     Ok(handle) => handle,
                     Err(_) => {
-                        let runtime = tokio::runtime::Runtime
-                            ::new()
-                            .expect("Failed to create runtime");
+                        let runtime =
+                            tokio::runtime::Runtime::new().expect("Failed to create runtime");
                         runtime.handle().clone()
                     }
                 };
@@ -953,7 +955,7 @@ impl Filesystem for RemoteFileSystem {
                         return;
                     }
                 }
-                0 // Placeholder, file non in cache locale
+                0 // Placeholder, file not in local cache
             }
         };
 
@@ -968,7 +970,10 @@ impl Filesystem for RemoteFileSystem {
             match rt.block_on(async { self.client.get_file_metadata(&full_path).await }) {
                 Ok(metadata) => {
                     if metadata.kind == FileKind::Directory {
-                        log::warn!("⚠️ [UNLINK] Tentativo di unlink su directory: {}", full_path);
+                        log::warn!(
+                            "⚠️ [UNLINK] Tentativo di unlink su directory: {}",
+                            full_path
+                        );
                         reply.error(libc::EISDIR);
                         return;
                     }
@@ -1003,7 +1008,7 @@ impl Filesystem for RemoteFileSystem {
             Err(ClientError::NotFound { .. }) => {
                 log::warn!("⚠️ [UNLINK] File già eliminato dal server: {}", full_path);
                 self.remove_path_mapping(&full_path);
-                reply.ok(); // Su Unix, eliminare un file già eliminato non è un errore
+                reply.ok();
             }
             Err(e) => {
                 eprintln!("❌ [UNLINK] Errore eliminazione dal server: {}", e);
@@ -1023,7 +1028,10 @@ impl Filesystem for RemoteFileSystem {
         };
 
         if dirname == "." || dirname == ".." {
-            log::warn!("⚠️ [RMDIR] Tentativo di eliminare directory speciale: {}", dirname);
+            log::warn!(
+                "⚠️ [RMDIR] Tentativo di eliminare directory speciale: {}",
+                dirname
+            );
             reply.error(libc::EINVAL);
             return;
         }
@@ -1031,7 +1039,10 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [RMDIR] Directory padre con inode {} non trovata", parent);
+                eprintln!(
+                    "❌ [RMDIR] Directory padre con inode {} non trovata",
+                    parent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1052,13 +1063,15 @@ impl Filesystem for RemoteFileSystem {
         let dir_inode = match self.path_to_inode.get(&full_path) {
             Some(&inode) => inode,
             None => {
-                log::warn!("⚠️ [RMDIR] Directory non trovata nella cache: {}", full_path);
+                log::warn!(
+                    "⚠️ [RMDIR] Directory non trovata nella cache: {}",
+                    full_path
+                );
                 let rt = match tokio::runtime::Handle::try_current() {
                     Ok(handle) => handle,
                     Err(_) => {
-                        let runtime = tokio::runtime::Runtime
-                            ::new()
-                            .expect("Failed to create runtime");
+                        let runtime =
+                            tokio::runtime::Runtime::new().expect("Failed to create runtime");
                         runtime.handle().clone()
                     }
                 };
@@ -1080,7 +1093,7 @@ impl Filesystem for RemoteFileSystem {
                         return;
                     }
                 }
-                0 // Placeholder, directory non in cache locale
+                0 // Placeholder, directory non in local cache
             }
         };
 
@@ -1150,11 +1163,14 @@ impl Filesystem for RemoteFileSystem {
                 reply.ok();
             }
             Err(ClientError::NotFound { .. }) => {
-                log::warn!("⚠️ [RMDIR] Directory già eliminata dal server: {}", full_path);
+                log::warn!(
+                    "⚠️ [RMDIR] Directory già eliminata dal server: {}",
+                    full_path
+                );
                 if dir_inode != 0 {
                     self.unregister_inode(dir_inode);
                 }
-                reply.ok(); // Su Unix, eliminare una directory già eliminata non è un errore
+                reply.ok();
             }
             Err(e) => {
                 eprintln!("❌ [RMDIR] Errore eliminazione dal server: {}", e);
@@ -1169,9 +1185,12 @@ impl Filesystem for RemoteFileSystem {
         parent: u64,
         name: &OsStr,
         link: &std::path::Path,
-        reply: ReplyEntry
+        reply: ReplyEntry,
     ) {
-        println!("🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}", parent, name, link);
+        println!(
+            "🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}",
+            parent, name, link
+        );
 
         let link_name = match name.to_str() {
             Some(s) => s,
@@ -1194,7 +1213,10 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [SYMLINK] Directory padre con inode {} non trovata", parent);
+                eprintln!(
+                    "❌ [SYMLINK] Directory padre con inode {} non trovata",
+                    parent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1208,7 +1230,10 @@ impl Filesystem for RemoteFileSystem {
 
         println!("🔗 [SYMLINK] Target risolto: '{}'", symlink_path);
 
-        println!("🔗 [SYMLINK] Creando symlink: '{}' → '{}'", link_name, target_path);
+        println!(
+            "🔗 [SYMLINK] Creando symlink: '{}' → '{}'",
+            link_name, target_path
+        );
 
         if self.path_to_inode.contains_key(&symlink_path) {
             log::warn!("⚠️ [SYMLINK] Symlink già esistente: {}", symlink_path);
@@ -1235,21 +1260,23 @@ impl Filesystem for RemoteFileSystem {
             ctime: now_iso.clone(),
             crtime: now_iso,
             kind: FileKind::Symlink,
-            ref_path: Some(target_path.to_string().clone()), // ← Target del symlink
-            perm: "777".to_string(), // Symlink hanno sempre permessi 777
+            ref_path: Some(target_path.to_string().clone()),
+            perm: "777".to_string(),
             mode: Mode::Write,
-            data: None, // Target come contenuto
+            data: None,
         };
-        println!("🔗 [SYMLINK] Creando symlink: '{}' → '{}'", link_name, target_path);
+        println!(
+            "🔗 [SYMLINK] Creando symlink: '{}' → '{}'",
+            link_name, target_path
+        );
 
         match rt.block_on(async { self.client.write_file(&symlink_request).await }) {
             Ok(()) => {
                 let new_inode = self.generate_inode();
                 self.register_inode(new_inode, symlink_path.to_string().clone());
 
-                let metadata_result = rt.block_on(async {
-                    self.client.get_file_metadata(&symlink_path).await
-                });
+                let metadata_result =
+                    rt.block_on(async { self.client.get_file_metadata(&symlink_path).await });
 
                 match metadata_result {
                     Ok(metadata) => {
@@ -1281,32 +1308,48 @@ impl Filesystem for RemoteFileSystem {
         newparent: u64,
         newname: &OsStr,
         flags: u32,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         let old_filename = match name.to_str() {
             Some(s) => s,
-            None => { reply.error(libc::EINVAL); return; }
+            None => {
+                reply.error(libc::EINVAL);
+                return;
+            }
         };
         let new_filename = match newname.to_str() {
             Some(s) => s,
-            None => { reply.error(libc::EINVAL); return; }
+            None => {
+                reply.error(libc::EINVAL);
+                return;
+            }
         };
 
         if flags != 0 {
             log::warn!("⚠️ [RENAME] Flags non supportati: {}", flags);
         }
-        if old_filename == "." || old_filename == ".." || new_filename == "." || new_filename == ".." {
+        if old_filename == "."
+            || old_filename == ".."
+            || new_filename == "."
+            || new_filename == ".."
+        {
             reply.error(libc::EINVAL);
             return;
         }
 
         let old_parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
         let new_parent_path = match self.get_path(newparent) {
             Some(p) => p.clone(),
-            None => { reply.error(libc::ENOENT); return; }
+            None => {
+                reply.error(libc::ENOENT);
+                return;
+            }
         };
 
         let old_path = if old_parent_path == "/" {
@@ -1320,8 +1363,14 @@ impl Filesystem for RemoteFileSystem {
             format!("{}/{}", new_parent_path, new_filename)
         };
 
-        if old_path == "/" { reply.error(libc::EBUSY); return; }
-        if old_path == new_path { reply.ok(); return; }
+        if old_path == "/" {
+            reply.error(libc::EBUSY);
+            return;
+        }
+        if old_path == new_path {
+            reply.ok();
+            return;
+        }
 
         // Runtime
         let rt = match tokio::runtime::Handle::try_current() {
@@ -1332,22 +1381,32 @@ impl Filesystem for RemoteFileSystem {
             }
         };
 
-        // Metadati sorgente
-        let old_metadata = match rt.block_on(async { self.client.get_file_metadata(&old_path).await }) {
-            Ok(m) => m,
-            Err(ClientError::NotFound { .. }) => { reply.error(libc::ENOENT); return; }
-            Err(_) => { reply.error(libc::EIO); return; }
-        };
+        // Source metadata
+        let old_metadata =
+            match rt.block_on(async { self.client.get_file_metadata(&old_path).await }) {
+                Ok(m) => m,
+                Err(ClientError::NotFound { .. }) => {
+                    reply.error(libc::ENOENT);
+                    return;
+                }
+                Err(_) => {
+                    reply.error(libc::EIO);
+                    return;
+                }
+            };
 
-        // Metadati destinazione (se esiste)
-        let dest_metadata_opt = rt.block_on(async { self.client.get_file_metadata(&new_path).await }).ok();
+        let dest_metadata_opt = rt
+            .block_on(async { self.client.get_file_metadata(&new_path).await })
+            .ok();
         if let Some(dest_md) = &dest_metadata_opt {
-            // Tipi incompatibili
             if dest_md.kind != old_metadata.kind {
-                reply.error(if old_metadata.kind == FileKind::Directory { libc::ENOTDIR } else { libc::EISDIR });
+                reply.error(if old_metadata.kind == FileKind::Directory {
+                    libc::ENOTDIR
+                } else {
+                    libc::EISDIR
+                });
                 return;
             }
-            // Se directory esistente deve essere vuota
             if dest_md.kind == FileKind::Directory {
                 match rt.block_on(async { self.client.list_directory(&new_path).await }) {
                     Ok(listing) => {
@@ -1356,12 +1415,15 @@ impl Filesystem for RemoteFileSystem {
                             return;
                         }
                     }
-                    Err(_) => { reply.error(libc::EIO); return; }
+                    Err(_) => {
+                        reply.error(libc::EIO);
+                        return;
+                    }
                 }
             }
         }
 
-        // Richiesta rename lato server (riuso write_file)
+        // Rename request
         let now_iso = chrono::Utc::now().to_rfc3339();
         let rename_request = WriteRequest {
             offset: None,
@@ -1383,7 +1445,6 @@ impl Filesystem for RemoteFileSystem {
 
         match rt.block_on(async { self.client.write_file(&rename_request).await }) {
             Ok(()) => {
-                // Se esiste destinazione con inode diverso, rimuovi mapping
                 if let Some(&dest_inode) = self.path_to_inode.get(&new_path) {
                     if dest_inode != file_inode {
                         self.unregister_inode(dest_inode);
@@ -1391,18 +1452,17 @@ impl Filesystem for RemoteFileSystem {
                 }
 
                 if file_inode != 0 {
-                    // Aggiorna mapping principale
                     self.inode_to_path.remove(&file_inode);
                     self.path_to_inode.remove(&old_path);
                     self.inode_to_path.insert(file_inode, new_path.clone());
                     self.path_to_inode.insert(new_path.clone(), file_inode);
 
-                    // Se directory: aggiorna anche i figli (prefisso)
+                    // If directory: update sons
                     if old_metadata.kind == FileKind::Directory {
                         let mut updates = Vec::new();
                         for (ino, p) in self.inode_to_path.iter() {
                             if p.starts_with(&old_path) && *ino != file_inode {
-                                // costruisci nuovo path
+                                // build new path
                                 let suffix = &p[old_path.len()..];
                                 let mut np = new_path.clone();
                                 np.push_str(suffix);
@@ -1416,12 +1476,12 @@ impl Filesystem for RemoteFileSystem {
                         }
                     }
 
-                    // Aggiorna path negli open_files
                     for of in self.open_files.values_mut() {
                         if of.path == old_path {
                             of.path = new_path.clone();
-                        } else if old_metadata.kind == FileKind::Directory && of.path.starts_with(&old_path) {
-                            // Aggiorna anche open file dentro la directory rinominata
+                        } else if old_metadata.kind == FileKind::Directory
+                            && of.path.starts_with(&old_path)
+                        {
                             let suffix = &of.path[old_path.len()..];
                             let mut np = new_path.clone();
                             np.push_str(suffix);
@@ -1429,7 +1489,6 @@ impl Filesystem for RemoteFileSystem {
                         }
                     }
                 } else {
-                    // Non avevi mapping locale: registrane uno nuovo
                     let new_inode = self.generate_inode();
                     self.register_inode(new_inode, new_path.clone());
                 }
@@ -1453,9 +1512,12 @@ impl Filesystem for RemoteFileSystem {
         ino: u64,
         newparent: u64,
         newname: &OsStr,
-        reply: ReplyEntry
+        reply: ReplyEntry,
     ) {
-        println!("🔗 [LINK] ino: {}, newparent: {}, newname: {:?}", ino, newparent, newname);
+        println!(
+            "🔗 [LINK] ino: {}, newparent: {}, newname: {:?}",
+            ino, newparent, newname
+        );
 
         let link_name = match newname.to_str() {
             Some(s) => s,
@@ -1478,7 +1540,10 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(newparent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [LINK] Directory padre con inode {} non trovata", newparent);
+                eprintln!(
+                    "❌ [LINK] Directory padre con inode {} non trovata",
+                    newparent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -1486,9 +1551,7 @@ impl Filesystem for RemoteFileSystem {
 
         println!(
             "Parent path: {}, Link name: {}, Source path: {:?}",
-            parent_path,
-            link_name,
-            source_path
+            parent_path, link_name, source_path
         );
 
         let link_path = if parent_path == "/" {
@@ -1512,31 +1575,36 @@ impl Filesystem for RemoteFileSystem {
             }
         };
 
-        let source_metadata = match
-            rt.block_on(async { self.client.get_file_metadata(&source_path).await })
-        {
-            Ok(metadata) => metadata,
-            Err(ClientError::NotFound { .. }) => {
-                eprintln!("❌ [LINK] File sorgente non trovato: {}", source_path);
-                reply.error(libc::ENOENT);
-                return;
-            }
-            Err(e) => {
-                eprintln!("❌ [LINK] Errore verifica file sorgente: {}", e);
-                reply.error(libc::EIO);
-                return;
-            }
-        };
+        let source_metadata =
+            match rt.block_on(async { self.client.get_file_metadata(&source_path).await }) {
+                Ok(metadata) => metadata,
+                Err(ClientError::NotFound { .. }) => {
+                    eprintln!("❌ [LINK] File sorgente non trovato: {}", source_path);
+                    reply.error(libc::ENOENT);
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("❌ [LINK] Errore verifica file sorgente: {}", e);
+                    reply.error(libc::EIO);
+                    return;
+                }
+            };
 
         match source_metadata.kind {
             FileKind::RegularFile => {}
             FileKind::Directory => {
-                log::warn!("⚠️ [LINK] Impossibile creare hard link su directory: {}", source_path);
+                log::warn!(
+                    "⚠️ [LINK] Impossibile creare hard link su directory: {}",
+                    source_path
+                );
                 reply.error(libc::EPERM);
                 return;
             }
             FileKind::Symlink => {
-                log::warn!("⚠️ [LINK] Hard link su symlink non supportato: {}", source_path);
+                log::warn!(
+                    "⚠️ [LINK] Hard link su symlink non supportato: {}",
+                    source_path
+                );
                 reply.error(libc::EPERM);
                 return;
             }
@@ -1556,38 +1624,40 @@ impl Filesystem for RemoteFileSystem {
             offset: None,
             path: link_path.clone(),
             new_path: None,
-            size: source_metadata.size, // ✅ Stessa dimensione del file originale
-            atime: source_metadata.atime.clone(), // ✅ Mantieni access time
-            mtime: source_metadata.mtime.clone(), // ✅ Mantieni modification time
-            ctime: now_iso.clone(), // ✅ Aggiorna change time (nuovo link)
-            crtime: source_metadata.crtime.clone(), // ✅ Mantieni creation time
-            kind: FileKind::Hardlink, // ✅ Stesso tipo file
-            ref_path: Some(source_path.clone()), // ✅ Riferimento al file originale
-            perm: source_metadata.perm.clone(), // ✅ Stessi permessi
-            mode: Mode::Write, // ✅ Modalità hard link
-            data: None, // ✅ Nessun contenuto, solo link
+            size: source_metadata.size,
+            atime: source_metadata.atime.clone(),
+            mtime: source_metadata.mtime.clone(),
+            ctime: now_iso.clone(),
+            crtime: source_metadata.crtime.clone(),
+            kind: FileKind::Hardlink,
+            ref_path: Some(source_path.clone()),
+            perm: source_metadata.perm.clone(),
+            mode: Mode::Write,
+            data: None,
         };
 
         match rt.block_on(async { self.client.write_file(&link_request).await }) {
             Ok(()) => {
-                self.path_to_inode.insert(link_path.clone(), ino); // ✅ Aggiungi nuovo path -> inode
+                self.path_to_inode.insert(link_path.clone(), ino);
 
-                let updated_metadata = match
-                    rt.block_on(async { self.client.get_file_metadata(&link_path).await })
-                {
-                    Ok(metadata) => metadata,
-                    Err(e) => {
-                        eprintln!("❌ [LINK] Errore recupero metadati dopo creazione: {}", e);
-                        source_metadata
-                    }
-                };
+                let updated_metadata =
+                    match rt.block_on(async { self.client.get_file_metadata(&link_path).await }) {
+                        Ok(metadata) => metadata,
+                        Err(e) => {
+                            eprintln!("❌ [LINK] Errore recupero metadati dopo creazione: {}", e);
+                            source_metadata
+                        }
+                    };
 
                 let attr = attributes::from_metadata(ino, &updated_metadata);
                 let ttl = Duration::from_secs(1);
                 reply.entry(&ttl, &attr, 0);
             }
             Err(ClientError::NotFound { .. }) => {
-                eprintln!("❌ [LINK] File sorgente non trovato durante creazione: {}", source_path);
+                eprintln!(
+                    "❌ [LINK] File sorgente non trovato durante creazione: {}",
+                    source_path
+                );
                 reply.error(libc::ENOENT);
             }
             Err(ClientError::PermissionDenied(_)) => {
@@ -1621,16 +1691,14 @@ impl Filesystem for RemoteFileSystem {
 
         let access_mode = flags & libc::O_ACCMODE;
         let create_flag = (flags & libc::O_CREAT) != 0;
-        let excl_flag   = (flags & libc::O_EXCL)  != 0;
-        let trunc_flag  = (flags & libc::O_TRUNC) != 0;
+        let excl_flag = (flags & libc::O_EXCL) != 0;
+        let trunc_flag = (flags & libc::O_TRUNC) != 0;
 
-        // 1. Prova a prendere i metadati
         let metadata_result = rt.block_on(async { self.client.get_file_metadata(&path).await });
 
         let metadata = match metadata_result {
             Ok(m) => m,
             Err(ClientError::NotFound { .. }) => {
-                // Se il file non esiste ed è richiesto O_CREAT → crealo ora (flusso .goutputstream-XXXX)
                 if create_flag {
                     let now_iso = chrono::Utc::now().to_rfc3339();
                     let create_req = WriteRequest {
@@ -1648,12 +1716,13 @@ impl Filesystem for RemoteFileSystem {
                         mode: Mode::Write,
                         data: Some(Vec::new()),
                     };
-                    if let Err(e) = rt.block_on(async { self.client.write_file(&create_req).await }) {
+                    if let Err(e) = rt.block_on(async { self.client.write_file(&create_req).await })
+                    {
                         eprintln!("❌ [OPEN] Creazione fallita {}: {}", path, e);
                         reply.error(libc::EIO);
                         return;
                     }
-                    // Recupera subito i metadati appena creati
+
                     match rt.block_on(async { self.client.get_file_metadata(&path).await }) {
                         Ok(m2) => m2,
                         Err(_) => {
@@ -1662,7 +1731,6 @@ impl Filesystem for RemoteFileSystem {
                         }
                     }
                 } else {
-                    // Mancava il file e non c'è O_CREAT
                     reply.error(libc::ENOENT);
                     return;
                 }
@@ -1674,7 +1742,6 @@ impl Filesystem for RemoteFileSystem {
             }
         };
 
-        // 2. Controllo permessi basico (owner)
         let perms = parse_permissions(&metadata.perm);
         let owner_bits = perms.owner;
 
@@ -1703,19 +1770,13 @@ impl Filesystem for RemoteFileSystem {
             }
         }
 
-        // 3. O_EXCL + O_CREAT su file esistente → errore
         if create_flag && excl_flag {
-            // se siamo qui vuol dire che metadata esisteva
-            // (caso NotFound sopra lo ha creato)
             if metadata.size >= 0 {
-                // esiste già
-                // (qualunque condizione reale: in man Linux restituisce EEXIST)
                 reply.error(libc::EEXIST);
                 return;
             }
         }
 
-        // 4. O_TRUNC se richiesto e scrivibile
         if trunc_flag && access_mode != libc::O_RDONLY {
             let now_iso = chrono::Utc::now().to_rfc3339();
             let trunc_req = WriteRequest {
@@ -1740,20 +1801,21 @@ impl Filesystem for RemoteFileSystem {
             }
         }
 
-        // 5. Registra file handle
         let fh = self.next_fh;
         self.next_fh += 1;
-        self.open_files.insert(fh, OpenFile {
-            path: path.clone(),
-            flags,
-            write_buffer: Vec::new(),
-            buffer_dirty: false,
-        });
+        self.open_files.insert(
+            fh,
+            OpenFile {
+                path: path.clone(),
+                flags,
+                write_buffer: Vec::new(),
+                buffer_dirty: false,
+            },
+        );
 
-        // 6. Risposta (senza FOPEN_DIRECT_IO per permettere page cache kernel)
         reply.opened(fh, 0);
     }
-    
+
     fn read(
         &mut self,
         _req: &Request<'_>,
@@ -1763,7 +1825,7 @@ impl Filesystem for RemoteFileSystem {
         size: u32,
         flags: i32,
         lock_owner: Option<u64>,
-        reply: ReplyData
+        reply: ReplyData,
     ) {
         if offset < 0 {
             eprintln!("❌ [READ] Offset negativo: {}", offset);
@@ -1792,7 +1854,10 @@ impl Filesystem for RemoteFileSystem {
 
         let access_mode = open_file.flags & libc::O_ACCMODE;
         if access_mode == libc::O_WRONLY {
-            log::warn!("⚠️ [READ] Tentativo di lettura su file aperto in WRITE-ONLY: {}", path);
+            log::warn!(
+                "⚠️ [READ] Tentativo di lettura su file aperto in WRITE-ONLY: {}",
+                path
+            );
             reply.error(libc::EBADF);
             return;
         }
@@ -1826,7 +1891,10 @@ impl Filesystem for RemoteFileSystem {
                 return;
             }
             _ => {
-                log::warn!("⚠️ [READ] Tipo file non supportato per read: {:?}", metadata.kind);
+                log::warn!(
+                    "⚠️ [READ] Tipo file non supportato per read: {:?}",
+                    metadata.kind
+                );
                 reply.error(libc::EPERM);
                 return;
             }
@@ -1848,7 +1916,9 @@ impl Filesystem for RemoteFileSystem {
         }
 
         let read_result = rt.block_on(async {
-            self.client.read_file(&path, Some(offset_u64), Some(bytes_to_read)).await
+            self.client
+                .read_file(&path, Some(offset_u64), Some(bytes_to_read))
+                .await
         });
 
         match read_result {
@@ -1892,7 +1962,7 @@ impl Filesystem for RemoteFileSystem {
         write_flags: u32,
         flags: i32,
         lock_owner: Option<u64>,
-        reply: fuser::ReplyWrite
+        reply: fuser::ReplyWrite,
     ) {
         if offset < 0 {
             eprintln!("❌ [WRITE] Offset negativo: {}", offset);
@@ -1922,7 +1992,10 @@ impl Filesystem for RemoteFileSystem {
 
         let access_mode = open_flags & libc::O_ACCMODE;
         if access_mode == libc::O_RDONLY {
-            log::warn!("⚠️ [WRITE] Tentativo di scrittura su file aperto in READ-ONLY: {}", path);
+            log::warn!(
+                "⚠️ [WRITE] Tentativo di scrittura su file aperto in READ-ONLY: {}",
+                path
+            );
             reply.error(libc::EBADF);
             return;
         }
@@ -1957,7 +2030,10 @@ impl Filesystem for RemoteFileSystem {
                 return;
             }
             _ => {
-                log::warn!("⚠️ [WRITE] Tipo file non supportato per write: {:?}", metadata.kind);
+                log::warn!(
+                    "⚠️ [WRITE] Tipo file non supportato per write: {:?}",
+                    metadata.kind
+                );
                 reply.error(libc::EPERM);
                 return;
             }
@@ -1966,7 +2042,7 @@ impl Filesystem for RemoteFileSystem {
         let current_file_size = metadata.size;
 
         let effective_offset = if (open_flags & libc::O_APPEND) != 0 {
-            current_file_size // Scrivi sempre alla fine del file
+            current_file_size
         } else {
             offset_u64
         };
@@ -1984,60 +2060,56 @@ impl Filesystem for RemoteFileSystem {
         let file = open_file.unwrap();
 
         if write_mode == Mode::Append && file.write_buffer.len() < STREAM_WRITE {
-                let open_file = self.open_files.get_mut(&fh);
-                if let Some(file) = open_file {
-                    file.write_buffer.extend_from_slice(&final_data);
+            let open_file = self.open_files.get_mut(&fh);
+            if let Some(file) = open_file {
+                file.write_buffer.extend_from_slice(&final_data);
 
-                    file.buffer_dirty = true; // ✅ Segna buffer come sporco
-                }
-                reply.written(final_data.len() as u32);
-                return;
+                file.buffer_dirty = true;
+            }
+            reply.written(final_data.len() as u32);
+            return;
         }
 
+        let now_iso1 = chrono::Utc::now().to_rfc3339();
 
+        let open_file = self.open_files.get_mut(&fh);
+        let file = if open_file.is_some() {
+            open_file.unwrap()
+        } else {
+            eprintln!("❌ [WRITE] File handle {} non trovato", fh);
+            reply.error(libc::EBADF);
+            return;
+        };
 
-                let now_iso1 = chrono::Utc::now().to_rfc3339();
+        if !file.write_buffer.is_empty() {
+            let write_request1 = WriteRequest {
+                offset: None,
+                path: path.clone(),
+                new_path: None,
+                size: file.write_buffer.len() as u64,
+                atime: metadata.atime.clone(),
+                mtime: now_iso1.clone(),
+                ctime: now_iso1,
+                crtime: metadata.crtime.clone(),
+                kind: metadata.kind.clone(),
+                ref_path: metadata.ref_path.clone(),
+                perm: metadata.perm.clone(),
+                mode: Mode::Append,
+                data: Some(file.write_buffer.clone()),
+            };
 
-                let open_file = self.open_files.get_mut(&fh);
-                let file = if open_file.is_some() {
-                    open_file.unwrap()
-                } else {
-                    eprintln!("❌ [WRITE] File handle {} non trovato", fh);
-                    reply.error(libc::EBADF);
-                    return;
-                };
+            let write_result1 =
+                rt.block_on(async { self.client.write_file(&write_request1).await });
 
-                if !file.write_buffer.is_empty() {
-                    let write_request1 = WriteRequest {
-                        offset: None, // ✅ SEMPRE None - usa Mode::Write per write-at
-                        path: path.clone(),
-                        new_path: None,
-                        size: file.write_buffer.len() as u64, // ✅ Dimensione dei dati finali
-                        atime: metadata.atime.clone(),
-                        mtime: now_iso1.clone(),
-                        ctime: now_iso1,
-                        crtime: metadata.crtime.clone(),
-                        kind: metadata.kind.clone(),
-                        ref_path: metadata.ref_path.clone(),
-                        perm: metadata.perm.clone(),
-                        mode: Mode::Append, // ✅ Mode determinato sopra
-                        data: Some(file.write_buffer.clone()), // ✅ Dati finali (completi per write-at)
-                    };
+            if let Err(e) = write_result1 {
+                eprintln!("❌ [WRITE] Errore scrittura file: {}", e);
+                reply.error(libc::EIO);
+                return;
+            }
 
-                    let write_result1 = rt.block_on(async {
-                        self.client.write_file(&write_request1).await
-                    });
-
-                    if let Err(e) = write_result1 {
-                        eprintln!("❌ [WRITE] Errore scrittura file: {}", e);
-                        reply.error(libc::EIO);
-                        return;
-                    }
-
-                    file.buffer_dirty = false;
-                    file.write_buffer.clear(); // ✅ Pulisci buffer dopo scrittura
-                }
-
+            file.buffer_dirty = false;
+            file.write_buffer.clear();
+        }
 
         let now_iso = chrono::Utc::now().to_rfc3339();
         let write_request = WriteRequest {
@@ -2045,10 +2117,10 @@ impl Filesystem for RemoteFileSystem {
                 Some(offset as u64)
             } else {
                 None
-            }, // ✅ SEMPRE None - usa Mode::Write per write-at
+            },
             path: path.clone(),
             new_path: None,
-            size: final_data.len() as u64, // ✅ Dimensione dei dati finali
+            size: final_data.len() as u64,
             atime: metadata.atime.clone(),
             mtime: now_iso.clone(),
             ctime: now_iso,
@@ -2056,8 +2128,8 @@ impl Filesystem for RemoteFileSystem {
             kind: metadata.kind,
             ref_path: metadata.ref_path.clone(),
             perm: metadata.perm.clone(),
-            mode: write_mode, // ✅ Mode determinato sopra
-            data: Some(final_data), // ✅ Dati finali (completi per write-at)
+            mode: write_mode,
+            data: Some(final_data),
         };
 
         let write_result = rt.block_on(async { self.client.write_file(&write_request).await });
@@ -2104,7 +2176,7 @@ impl Filesystem for RemoteFileSystem {
         _ino: u64,
         fh: u64,
         _lock_owner: u64,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         let rt = match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle,
@@ -2128,21 +2200,20 @@ impl Filesystem for RemoteFileSystem {
             return;
         }
 
-        let metadata = match
-            rt.block_on(async { self.client.get_file_metadata(&open_file.path).await })
-        {
-            Ok(metadata) => metadata,
-            Err(ClientError::NotFound { .. }) => {
-                eprintln!("❌ [WRITE] File non trovato sul server: {}", open_file.path);
-                reply.error(libc::ENOENT);
-                return;
-            }
-            Err(e) => {
-                eprintln!("❌ [WRITE] Errore verifica metadati: {}", e);
-                reply.error(libc::EIO);
-                return;
-            }
-        };
+        let metadata =
+            match rt.block_on(async { self.client.get_file_metadata(&open_file.path).await }) {
+                Ok(metadata) => metadata,
+                Err(ClientError::NotFound { .. }) => {
+                    eprintln!("❌ [WRITE] File non trovato sul server: {}", open_file.path);
+                    reply.error(libc::ENOENT);
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("❌ [WRITE] Errore verifica metadati: {}", e);
+                    reply.error(libc::EIO);
+                    return;
+                }
+            };
 
         if open_file.buffer_dirty {
             let now_iso1 = chrono::Utc::now().to_rfc3339();
@@ -2165,10 +2236,10 @@ impl Filesystem for RemoteFileSystem {
             };
 
             let write_request1 = WriteRequest {
-                offset: None, // ✅ SEMPRE None - usa Mode::Write per write-at
+                offset: None,
                 path: file.path.clone(),
                 new_path: None,
-                size: file.write_buffer.len() as u64, // ✅ Dimensione dei dati finali
+                size: file.write_buffer.len() as u64,
                 atime: metadata.atime.clone(),
                 mtime: now_iso1.clone(),
                 ctime: now_iso1,
@@ -2180,9 +2251,8 @@ impl Filesystem for RemoteFileSystem {
                 data: Some(file.write_buffer.clone()),
             };
 
-            let write_result1 = rt.block_on(async {
-                self.client.write_file(&write_request1).await
-            });
+            let write_result1 =
+                rt.block_on(async { self.client.write_file(&write_request1).await });
 
             if let Err(e) = write_result1 {
                 eprintln!("❌ [WRITE] Errore scrittura file: {}", e);
@@ -2202,12 +2272,15 @@ impl Filesystem for RemoteFileSystem {
         flags: i32,
         lock_owner: Option<u64>,
         flush: bool,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
             None => {
-                log::warn!("⚠️ [RELEASE] File handle {} già rilasciato o inesistente", fh);
+                log::warn!(
+                    "⚠️ [RELEASE] File handle {} già rilasciato o inesistente",
+                    fh
+                );
                 reply.ok();
                 return;
             }
@@ -2215,11 +2288,9 @@ impl Filesystem for RemoteFileSystem {
 
         let path = open_file.path.clone();
 
-        if flush {
-        }
+        if flush {}
 
-        if let Some(removed_file) = self.open_files.remove(&fh) {
-        }
+        if let Some(removed_file) = self.open_files.remove(&fh) {}
 
         reply.ok();
     }
@@ -2230,7 +2301,7 @@ impl Filesystem for RemoteFileSystem {
         ino: u64,
         fh: u64,
         datasync: bool,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         let open_file = match self.open_files.get(&fh) {
             Some(file) => file,
@@ -2304,7 +2375,11 @@ impl Filesystem for RemoteFileSystem {
         };
 
         if metadata.kind != FileKind::Directory {
-            log::warn!("⚠️ [OPENDIR] '{}' non è una directory: {:?}", path, metadata.kind);
+            log::warn!(
+                "⚠️ [OPENDIR] '{}' non è una directory: {:?}",
+                path,
+                metadata.kind
+            );
             reply.error(libc::ENOTDIR);
             return;
         }
@@ -2326,10 +2401,13 @@ impl Filesystem for RemoteFileSystem {
         let dh = self.next_fh;
         self.next_fh += 1;
 
-        self.open_dirs.insert(dh, OpenDir {
-            path: path.clone(),
-            flags, // ← Includi i flags
-        });
+        self.open_dirs.insert(
+            dh,
+            OpenDir {
+                path: path.clone(),
+                flags,
+            },
+        );
 
         reply.opened(dh, 0);
     }
@@ -2340,7 +2418,7 @@ impl Filesystem for RemoteFileSystem {
         ino: u64,
         fh: u64,
         offset: i64,
-        mut reply: ReplyDirectory
+        mut reply: ReplyDirectory,
     ) {
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
@@ -2388,8 +2466,7 @@ impl Filesystem for RemoteFileSystem {
         let parent_ino = if path == "/" {
             1 // Root directory
         } else {
-            let parent_path = std::path::Path
-                ::new(&path)
+            let parent_path = std::path::Path::new(&path)
                 .parent()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|| "/".to_string());
@@ -2417,9 +2494,12 @@ impl Filesystem for RemoteFileSystem {
                 FileKind::Directory => FileType::Directory,
                 FileKind::RegularFile => FileType::RegularFile,
                 FileKind::Symlink => FileType::Symlink,
-                FileKind::Hardlink => FileType::RegularFile, // Hard link appare come file normale
+                FileKind::Hardlink => FileType::RegularFile, // Hard link appears as normal files
                 _ => {
-                    log::warn!("⚠️ [READDIR] Tipo file non supportato: {:?}", file_entry.kind);
+                    log::warn!(
+                        "⚠️ [READDIR] Tipo file non supportato: {:?}",
+                        file_entry.kind
+                    );
                     FileType::RegularFile // Fallback
                 }
             };
@@ -2438,12 +2518,7 @@ impl Filesystem for RemoteFileSystem {
         for (entry_ino, file_type, name) in entries.into_iter().skip(start_index) {
             current_offset += 1;
 
-            let buffer_full = reply.add(
-                entry_ino, // inode
-                current_offset as i64, // offset per prossima entry
-                file_type, // tipo file
-                name // nome file
-            );
+            let buffer_full = reply.add(entry_ino, current_offset as i64, file_type, name);
 
             if buffer_full {
                 break;
@@ -2459,12 +2534,15 @@ impl Filesystem for RemoteFileSystem {
         ino: u64,
         fh: u64,
         flags: i32,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
             None => {
-                log::warn!("⚠️ [RELEASEDIR] Directory handle {} già rilasciato o inesistente", fh);
+                log::warn!(
+                    "⚠️ [RELEASEDIR] Directory handle {} già rilasciato o inesistente",
+                    fh
+                );
                 reply.ok();
                 return;
             }
@@ -2472,8 +2550,7 @@ impl Filesystem for RemoteFileSystem {
 
         let path = open_dir.path.clone();
 
-        if let Some(removed_dir) = self.open_dirs.remove(&fh) {
-        }
+        if let Some(removed_dir) = self.open_dirs.remove(&fh) {}
 
         reply.ok();
     }
@@ -2484,7 +2561,7 @@ impl Filesystem for RemoteFileSystem {
         ino: u64,
         fh: u64,
         datasync: bool,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         let open_dir = match self.open_dirs.get(&fh) {
             Some(dir) => dir,
@@ -2529,7 +2606,10 @@ impl Filesystem for RemoteFileSystem {
                 reply.ok();
             }
             Err(ClientError::NotFound { .. }) => {
-                eprintln!("❌ [FSYNCDIR] Directory eliminata durante fsyncdir: {}", path);
+                eprintln!(
+                    "❌ [FSYNCDIR] Directory eliminata durante fsyncdir: {}",
+                    path
+                );
                 reply.error(libc::ENOENT);
             }
             Err(ClientError::PermissionDenied(_)) => {
@@ -2558,7 +2638,7 @@ impl Filesystem for RemoteFileSystem {
             total_inodes,
             4096,
             255,
-            0
+            0,
         );
     }
 
@@ -2570,7 +2650,7 @@ impl Filesystem for RemoteFileSystem {
         _value: &[u8],
         flags: i32,
         position: u32,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         reply.error(libc::ENOSYS);
     }
@@ -2581,7 +2661,7 @@ impl Filesystem for RemoteFileSystem {
         ino: u64,
         name: &OsStr,
         size: u32,
-        reply: fuser::ReplyXattr
+        reply: fuser::ReplyXattr,
     ) {
         reply.error(libc::ENOSYS);
     }
@@ -2595,7 +2675,7 @@ impl Filesystem for RemoteFileSystem {
         _req: &Request<'_>,
         ino: u64,
         name: &OsStr,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         reply.error(libc::ENOSYS);
     }
@@ -2649,7 +2729,7 @@ impl Filesystem for RemoteFileSystem {
 
         let perms = parse_permissions(&metadata.perm);
 
-        let effective_perms = perms.owner; // Assumi che siamo sempre owner
+        let effective_perms = perms.owner;
 
         let mut access_denied = false;
 
@@ -2687,7 +2767,7 @@ impl Filesystem for RemoteFileSystem {
         mode: u32,
         umask: u32,
         flags: i32,
-        reply: fuser::ReplyCreate
+        reply: fuser::ReplyCreate,
     ) {
         let filename = match name.to_str() {
             Some(s) => s,
@@ -2701,7 +2781,10 @@ impl Filesystem for RemoteFileSystem {
         let parent_path = match self.get_path(parent) {
             Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [CREATE] Directory padre con inode {} non trovata", parent);
+                eprintln!(
+                    "❌ [CREATE] Directory padre con inode {} non trovata",
+                    parent
+                );
                 reply.error(libc::ENOENT);
                 return;
             }
@@ -2737,21 +2820,20 @@ impl Filesystem for RemoteFileSystem {
         let create_request = WriteRequest {
             offset: None,
             path: full_path.clone(),
-            new_path: None, // ✅ AGGIUNGI QUESTO
-            size: 0, // File vuoto inizialmente
+            new_path: None,
+            size: 0,
             atime: now_iso.clone(),
             mtime: now_iso.clone(),
             ctime: now_iso.clone(),
             crtime: now_iso,
             kind: FileKind::RegularFile,
-            ref_path: None, // ✅ AGGIUNGI QUESTO
-            perm: effective_permissions_str, // ✅ FIX: usa la variabile corretta
+            ref_path: None,
+            perm: effective_permissions_str,
             mode: Mode::Write,
-            data: Some(Vec::new()), // File vuoto
+            data: Some(Vec::new()),
         };
 
-        if (open_flags & libc::O_TRUNC) != 0 {
-        }
+        if (open_flags & libc::O_TRUNC) != 0 {}
 
         match rt.block_on(async { self.client.write_file(&create_request).await }) {
             Ok(()) => {
@@ -2761,16 +2843,18 @@ impl Filesystem for RemoteFileSystem {
                 let fh = self.next_fh;
                 self.next_fh += 1;
 
-                self.open_files.insert(fh, OpenFile {
-                    path: full_path.clone(),
-                    flags,
-                    write_buffer: Vec::new(),
-                    buffer_dirty: false,
-                });
+                self.open_files.insert(
+                    fh,
+                    OpenFile {
+                        path: full_path.clone(),
+                        flags,
+                        write_buffer: Vec::new(),
+                        buffer_dirty: false,
+                    },
+                );
 
-                let metadata_result = rt.block_on(async {
-                    self.client.get_file_metadata(&full_path).await
-                });
+                let metadata_result =
+                    rt.block_on(async { self.client.get_file_metadata(&full_path).await });
 
                 match metadata_result {
                     Ok(metadata) => {
@@ -2807,7 +2891,7 @@ impl Filesystem for RemoteFileSystem {
         end: u64,
         typ: i32,
         pid: u32,
-        reply: fuser::ReplyLock
+        reply: fuser::ReplyLock,
     ) {
         if !self.open_files.contains_key(&fh) {
             reply.error(libc::EBADF);
@@ -2822,7 +2906,7 @@ impl Filesystem for RemoteFileSystem {
                             existing_lock.start,
                             existing_lock.end,
                             existing_lock.typ,
-                            existing_lock.pid
+                            existing_lock.pid,
                         );
                         return;
                     }
@@ -2844,7 +2928,7 @@ impl Filesystem for RemoteFileSystem {
         typ: i32,
         pid: u32,
         sleep: bool,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         if !self.open_files.contains_key(&fh) {
             reply.error(libc::EBADF);
@@ -2855,10 +2939,8 @@ impl Filesystem for RemoteFileSystem {
             libc::F_UNLCK => {
                 if let Some(locks) = self.file_locks.get_mut(&ino) {
                     locks.retain(|lock| {
-                        !(
-                            lock.lock_owner == lock_owner &&
-                            ranges_overlap(start, end, lock.start, lock.end)
-                        )
+                        !(lock.lock_owner == lock_owner
+                            && ranges_overlap(start, end, lock.start, lock.end))
                     });
                 }
 
@@ -2867,10 +2949,9 @@ impl Filesystem for RemoteFileSystem {
             libc::F_RDLCK | libc::F_WRLCK => {
                 if let Some(locks) = self.file_locks.get(&ino) {
                     for existing_lock in locks {
-                        if
-                            ranges_overlap(start, end, existing_lock.start, existing_lock.end) &&
-                            locks_conflict(typ, existing_lock.typ) &&
-                            existing_lock.lock_owner != lock_owner
+                        if ranges_overlap(start, end, existing_lock.start, existing_lock.end)
+                            && locks_conflict(typ, existing_lock.typ)
+                            && existing_lock.lock_owner != lock_owner
                         {
                             if sleep {
                                 log::warn!(
@@ -2894,7 +2975,10 @@ impl Filesystem for RemoteFileSystem {
                     lock_owner,
                 };
 
-                self.file_locks.entry(ino).or_insert_with(Vec::new).push(new_lock);
+                self.file_locks
+                    .entry(ino)
+                    .or_insert_with(Vec::new)
+                    .push(new_lock);
 
                 reply.ok();
             }
@@ -2910,7 +2994,7 @@ impl Filesystem for RemoteFileSystem {
         ino: u64,
         blocksize: u32,
         idx: u64,
-        reply: fuser::ReplyBmap
+        reply: fuser::ReplyBmap,
     ) {
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
@@ -2970,7 +3054,7 @@ impl Filesystem for RemoteFileSystem {
         cmd: u32,
         in_data: &[u8],
         out_size: u32,
-        reply: fuser::ReplyIoctl
+        reply: fuser::ReplyIoctl,
     ) {
         reply.error(libc::ENOSYS);
     }
@@ -2983,7 +3067,7 @@ impl Filesystem for RemoteFileSystem {
         offset: i64,
         length: i64,
         mode: i32,
-        reply: fuser::ReplyEmpty
+        reply: fuser::ReplyEmpty,
     ) {
         reply.error(libc::ENOSYS);
     }
@@ -2995,7 +3079,7 @@ impl Filesystem for RemoteFileSystem {
         fh: u64,
         offset: i64,
         whence: i32,
-        reply: fuser::ReplyLseek
+        reply: fuser::ReplyLseek,
     ) {
         reply.error(libc::ENOSYS);
     }
@@ -3011,7 +3095,7 @@ impl Filesystem for RemoteFileSystem {
         offset_out: i64,
         len: u64,
         flags: u32,
-        reply: fuser::ReplyWrite
+        reply: fuser::ReplyWrite,
     ) {
         if offset_in < 0 || offset_out < 0 {
             eprintln!("❌ [COPY_FILE_RANGE] Offset negativi non supportati");
@@ -3027,7 +3111,10 @@ impl Filesystem for RemoteFileSystem {
         let source_file = match self.open_files.get(&fh_in) {
             Some(file) => file,
             None => {
-                eprintln!("❌ [COPY_FILE_RANGE] File handle sorgente {} non trovato", fh_in);
+                eprintln!(
+                    "❌ [COPY_FILE_RANGE] File handle sorgente {} non trovato",
+                    fh_in
+                );
                 reply.error(libc::EBADF);
                 return;
             }
@@ -3036,7 +3123,10 @@ impl Filesystem for RemoteFileSystem {
         let dest_file = match self.open_files.get(&fh_out) {
             Some(file) => file,
             None => {
-                eprintln!("❌ [COPY_FILE_RANGE] File handle destinazione {} non trovato", fh_out);
+                eprintln!(
+                    "❌ [COPY_FILE_RANGE] File handle destinazione {} non trovato",
+                    fh_out
+                );
                 reply.error(libc::EBADF);
                 return;
             }
@@ -3066,15 +3156,11 @@ impl Filesystem for RemoteFileSystem {
         };
         let chunk_size = std::cmp::min(len, 1024 * 1024); // Max 1MB per chunk
 
-        let source_data = match
-            rt.block_on(async {
-                self.client.read_file(
-                    &source_file.path,
-                    Some(offset_in as u64),
-                    Some(chunk_size)
-                ).await
-            })
-        {
+        let source_data = match rt.block_on(async {
+            self.client
+                .read_file(&source_file.path, Some(offset_in as u64), Some(chunk_size))
+                .await
+        }) {
             Ok(data) => data.data,
             Err(e) => {
                 eprintln!("❌ [COPY_FILE_RANGE] Errore lettura sorgente: {}", e);
@@ -3091,16 +3177,15 @@ impl Filesystem for RemoteFileSystem {
             return;
         }
 
-        let dest_metadata = match
-            rt.block_on(async { self.client.get_file_metadata(&dest_file.path).await })
-        {
-            Ok(metadata) => metadata,
-            Err(e) => {
-                eprintln!("❌ [COPY_FILE_RANGE] Errore metadati destinazione: {}", e);
-                reply.error(libc::EIO);
-                return;
-            }
-        };
+        let dest_metadata =
+            match rt.block_on(async { self.client.get_file_metadata(&dest_file.path).await }) {
+                Ok(metadata) => metadata,
+                Err(e) => {
+                    eprintln!("❌ [COPY_FILE_RANGE] Errore metadati destinazione: {}", e);
+                    reply.error(libc::EIO);
+                    return;
+                }
+            };
 
         let now_iso = chrono::Utc::now().to_rfc3339();
         let write_request = WriteRequest {

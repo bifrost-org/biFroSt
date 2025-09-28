@@ -36,7 +36,7 @@ pub enum ClientError {
 }
 
 const READ_ALIGN: u64 = 4096;
-const READ_PREFETCH: u64 = 2 * 1024 * 1024; // blocco di riempimento (puoi salire a 1 * 1024 * 1024)
+const READ_PREFETCH: u64 = 2 * 1024 * 1024;
 
 fn align_down(v: u64, a: u64) -> u64 {
     v - (v % a)
@@ -49,15 +49,15 @@ pub struct RemoteClient {
     timeout: Duration,
     pub path_mounting: String,
     cache_metadata: MokaCache<String, DirectoryListing>,
-    read_buf: MokaCache<String, Arc<Mutex<BitmapReadBuf>>>, // CHANGED
+    read_buf: MokaCache<String, Arc<Mutex<BitmapReadBuf>>>,
 }
 
 #[derive(Debug, Clone)]
 struct BitmapReadBuf {
     size: u64,
-    filled: u64,      // quanti byte già marcati presenti
-    data: Vec<u8>,    // dimensione = size (solo bytes già scaricati validi dove bitmap=1)
-    bitmap: Vec<u64>, // bit per byte (1 = presente)
+    filled: u64,
+    data: Vec<u8>,
+    bitmap: Vec<u64>,
 }
 
 fn new_bitmap_buf(size: u64) -> BitmapReadBuf {
@@ -88,7 +88,6 @@ fn set_bit(bm: &mut BitmapReadBuf, idx: u64) {
     }
 }
 
-// Controlla se intervallo [start, start+len) è tutto presente
 fn range_present(bm: &BitmapReadBuf, start: u64, len: u64) -> bool {
     if len == 0 {
         return true;
@@ -107,14 +106,13 @@ fn range_present(bm: &BitmapReadBuf, start: u64, len: u64) -> bool {
     true
 }
 
-// Marca bytes copiando in data e segnando bitmap
 fn mark_bytes(bm: &mut BitmapReadBuf, start: u64, bytes: &[u8]) {
     let mut idx = start;
     for &b in bytes {
         if idx >= bm.size {
             break;
         }
-        // scrivi sempre (idempotente su già presenti)
+
         bm.data[idx as usize] = b;
         set_bit(bm, idx);
         idx += 1;
@@ -142,8 +140,8 @@ impl RemoteClient {
                 .time_to_idle(Duration::from_secs(3 * 60))
                 .build(),
             read_buf: MokaCache::builder()
-                .time_to_live(Duration::from_secs(3 * 60)) // TTL breve
-                .max_capacity(512) // ~512 buffer attivi
+                .time_to_live(Duration::from_secs(3 * 60))
+                .max_capacity(512)
                 .build(),
         }
     }
@@ -239,7 +237,7 @@ impl RemoteClient {
 
         if let Some(found_file) = parent_listing.files.iter().find(|f| f.name == file_name) {
             let mut result = found_file.clone();
-            result.name = path.to_string(); // Mantieni il path completo
+            result.name = path.to_string();
             return Ok(result);
         }
 
@@ -319,7 +317,6 @@ impl RemoteClient {
         let off = offset.unwrap_or(0);
         let want = size.unwrap_or(READ_PREFETCH);
 
-        // Prendi o crea entry (Arc<Mutex<...>>)
         let arc_buf = match self.read_buf.get(path) {
             Some(b) => b,
             None => {
@@ -390,7 +387,6 @@ impl RemoteClient {
         })
     }
 
-    // ---------------- REPLACE http_read_range (semplificata) ----------------
     async fn http_read_range(
         &self,
         path: &str,
@@ -415,11 +411,10 @@ impl RemoteClient {
 
         let status = response.status().as_u16();
         if status == 206 || status == 200 {
-            // 206: range rispettato; 200: server può aver ignorato Range (file piccolo) -> va bene
             let data = response.bytes().await.map_err(ClientError::Http)?.to_vec();
             Ok(data)
         } else if status == 416 {
-            Ok(Vec::new()) // oltre EOF
+            Ok(Vec::new())
         } else {
             let message = response
                 .text()

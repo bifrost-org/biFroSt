@@ -53,7 +53,7 @@ pub struct MetaFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Copy)]
-#[serde(rename_all = "snake_case")] // ← Aggiunto per gestire snake_case
+#[serde(rename_all = "snake_case")]
 pub enum FileKind {
     #[serde(rename = "regular_file")]
     RegularFile,
@@ -102,7 +102,7 @@ impl FileKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize,Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum Mode {
     #[serde(rename = "write")]
     Write,
