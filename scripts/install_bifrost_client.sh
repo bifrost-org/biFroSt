@@ -32,11 +32,11 @@ info "Installing system dependencies..."
 
 if command -v apt-get >/dev/null 2>&1; then
     info "Detected apt-based Linux (Debian/Ubuntu)..."
-    sudo apt-get install -y build-essential pkg-config libfuse3-dev
+    sudo apt-get install -y build-essential pkg-config fuse3 libfuse3-dev
 elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
     PKG_CMD="$(command -v dnf >/dev/null 2>&1 && echo dnf || echo yum)"
     info "Detected RPM-based Linux ($PKG_CMD)..."
-    sudo $PKG_CMD install -y gcc gcc-c++ make pkgconfig fuse3-devel
+    sudo $PKG_CMD install -y gcc gcc-c++ make pkgconfig fuse3 fuse3-devel
 else
     error "Unknown Linux package manager. Please install build tools and FUSE3 development headers manually."
 fi
