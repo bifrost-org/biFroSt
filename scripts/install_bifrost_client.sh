@@ -42,6 +42,27 @@ else
 fi
 
 # -----------------------------
+# Ensure FUSE allows 'allow_other'
+# -----------------------------
+FUSE_CONF="/etc/fuse.conf"
+
+info "Checking FUSE configuration for 'user_allow_other'..."
+if [[ -f "$FUSE_CONF" ]]; then
+    if grep -q "^user_allow_other" "$FUSE_CONF"; then
+        info "'user_allow_other' already enabled in $FUSE_CONF"
+    elif grep -q "^#user_allow_other" "$FUSE_CONF"; then
+        info "Decommenting 'user_allow_other' in $FUSE_CONF"
+        sudo sed -i 's/^#user_allow_other/user_allow_other/' "$FUSE_CONF"
+    else
+        info "'user_allow_other' not found, adding it to $FUSE_CONF"
+        echo "user_allow_other" | sudo tee -a "$FUSE_CONF" >/dev/null
+    fi
+else
+    info "$FUSE_CONF not found, creating it and enabling 'user_allow_other'"
+    echo "user_allow_other" | sudo tee "$FUSE_CONF" >/dev/null
+fi
+
+# -----------------------------
 # Clone and build client
 # -----------------------------
 REPO_URL="https://github.com/bifrost-org/biFroSt"
