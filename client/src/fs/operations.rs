@@ -1186,10 +1186,7 @@ impl Filesystem for RemoteFileSystem {
         link: &std::path::Path,
         reply: ReplyEntry,
     ) {
-        println!(
-            "🔗 [SYMLINK] parent: {}, name: {:?}, link: {:?}",
-            parent, name, link
-        );
+
 
         let link_name = match name.to_str() {
             Some(s) => s,
@@ -1227,12 +1224,8 @@ impl Filesystem for RemoteFileSystem {
             format!("{}/{}", parent_path, link_name)
         };
 
-        println!("🔗 [SYMLINK] Target risolto: '{}'", symlink_path);
 
-        println!(
-            "🔗 [SYMLINK] Creando symlink: '{}' → '{}'",
-            link_name, target_path
-        );
+
 
         if self.path_to_inode.contains_key(&symlink_path) {
             log::warn!("⚠️ [SYMLINK] Symlink già esistente: {}", symlink_path);
@@ -1264,10 +1257,7 @@ impl Filesystem for RemoteFileSystem {
             mode: Mode::Write,
             data: None,
         };
-        println!(
-            "🔗 [SYMLINK] Creando symlink: '{}' → '{}'",
-            link_name, target_path
-        );
+
 
         match rt.block_on(async { self.client.write_file(&symlink_request).await }) {
             Ok(()) => {
