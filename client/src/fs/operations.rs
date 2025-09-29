@@ -2673,7 +2673,6 @@ impl Filesystem for RemoteFileSystem {
         let path = match self.inode_to_path.get(&ino) {
             Some(p) => p.clone(),
             None => {
-                eprintln!("❌ [ACCESS] Inode {} non trovato", ino);
                 reply.error(libc::ENOENT);
                 return;
             }
