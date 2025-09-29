@@ -55,7 +55,7 @@ HMAC provides:
 
 - Full API reference: [API documentation](./API%20documentation.md)
 
-## Installation
+## Guided installation
 
 > **Note:** Some steps in the installation scripts require root privileges.  
 > This includes installing system dependencies (e.g., via `apt-get` or `dnf`) and setting up a system service/daemon with `systemd`.  
@@ -69,23 +69,9 @@ You can install the client by running the provided command:
 wget -qO- https://raw.githubusercontent.com/bifrost-org/biFroSt/main/scripts/install_bifrost_client.sh | bash
 ```
 
-Alternatively, you can build the client from source:
-
-```bash
-git clone https://github.com/bifrost-org/biFroSt.git
-cd biFroSt/client
-cargo build --release
-```
-
-The compiled binary will be in `target/release/bifrost`. You can move it to a folder in your `PATH`, e.g.:
-
-```bash
-sudo mv target/release/bifrost /usr/local/bin/
-```
-
 ### Server installation
 
-You can install the client by running the provided command:
+You can install the server by running the provided commands:
 
 ```bash
 wget -q https://raw.githubusercontent.com/bifrost-org/biFroSt/main/scripts/install_bifrost_server.sh
@@ -93,13 +79,66 @@ bash install_bifrost_server.sh
 rm install_bifrost_server.sh
 ```
 
-Alternatively, you can build the server from source:
+## Manual installation
+
+### Client installation
+
+**Step 1: Install system dependencies**
+
+On Debian/Ubuntu:
+
+```bash
+sudo apt install -y build-essential pkg-config fuse3 libfuse3-dev curl git
+```
+
+On Fedora/RHEL/CentOS:
+
+```bash
+sudo dnf install -y gcc gcc-c++ make pkgconfig fuse3 fuse3-devel curl git
+```
+
+**Step 2: Install Rust (if not installed)**
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+```
+
+**Step 3: Clone and build the client**
+
+```bash
+git clone https://github.com/bifrost-org/biFroSt.git
+cd biFroSt/client
+cargo build --release
+sudo cp target/release/bifrost /usr/local/bin/
+sudo chmod +x /usr/local/bin/bifrost
+```
+
+> Make sure FUSE allows `allow_other` by checking `/etc/fuse.conf` (uncomment or add `user_allow_other` if needed).
+
+### Server installation
+
+**Step 1: Install Node.js and npm**
+
+Debian/Ubuntu:
+
+```bash
+sudo apt install -y nodejs npm
+```
+
+Fedora/RHEL/CentOS:
+
+```bash
+sudo dnf install -y nodejs npm
+```
+
+**Step 2: Clone and build the server**
 
 ```bash
 git clone https://github.com/bifrost-org/biFroSt.git
 cd biFroSt/server
 npm install        # install dependencies
-npm run build      # compile TypeScript into JavaScript
+npm run build      # compile TypeScript
 ```
 
 The compiled server will be in dist/. You can run it with:
@@ -140,11 +179,11 @@ USERS_PATH=/path/to/users
 
 Make sure all paths and credentials exist and are accessible by the user running the server.
 
-### Database setup
+## Database setup (server-side)
 
-biFrǫSt requires a PostgreSQL database to store user informations. The installation script **does not create the database or tables** - this is the responsibility of the user.
+biFrǫSt (server) requires a PostgreSQL database to store user informations. The installation script **does not create the database or tables** - this is the responsibility of the user.
 
-#### 1. Create a database
+### 1. Create a database
 
 Make sure you have a PostgreSQL database ready. For example:
 
@@ -152,7 +191,7 @@ Make sure you have a PostgreSQL database ready. For example:
 createdb -h <DB_HOST> -p <DB_PORT> -U <DB_USER> <DB_NAME>
 ```
 
-#### 2. Connect to the database and create the `user` table:
+### 2. Connect to the database and create the `user` table:
 
 A SQL schema file is provided as `schema.sql` in the repository. It contains the table structure required by the server:
 
